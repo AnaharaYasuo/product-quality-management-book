@@ -1,0 +1,15 @@
+# markdownlint configuration for Japanese technical book
+
+default: true
+
+# MD013: 日本語の文章では80文字改行を行わない（Pandocおよび電子書籍レンダリングの最適化のため）
+MD013: false
+
+# MD033: インラインHTMLの許可（改行タグ等のレイアウト調整用）
+MD033: false
+
+# MD024: 同一ドキュメント内での同名見出しを許可
+MD024: false
+
+# MD041: 最初の行が見出しでなくても許可
+MD041: false
