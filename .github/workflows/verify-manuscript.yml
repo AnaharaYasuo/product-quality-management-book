@@ -1,0 +1,70 @@
+name: Verify Manuscript and Quality Gate
+
+on:
+  push:
+    branches: [main, feat/*]
+  pull_request:
+    branches: [main]
+
+jobs:
+  static-analysis:
+    name: Markdown & Text Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Markdownlint & Textlint
+        run: |
+          npm install -g markdownlint-cli textlint textlint-rule-preset-ja-technical-writing textlint-rule-prh
+
+      - name: Run Markdownlint
+        run: |
+          markdownlint "manuscript/*.md" --ignore "manuscript/style.css"
+
+      - name: Run Python Manuscript Linter
+        run: |
+          python3 tools/lint_manuscript.py
+
+  link-check:
+    name: Dead Link Checker (Lychee DAST)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Lychee Link Checker
+        uses: lycheeverse/lychee-action@v1
+        with:
+          args: "--verbose --no-progress 'manuscript/**/*.md' 'README.md'"
+          fail: true
+
+  epub-validation:
+    name: EPUB Build and EPUBCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Pandoc & Java (for EPUBCheck)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc default-jre wget
+
+      - name: Download EPUBCheck
+        run: |
+          wget -q https://github.com/w3c/epubcheck/releases/download/v5.1.0/epubcheck-5.1.0.zip
+          unzip -q epubcheck-5.1.0.zip
+
+      - name: Build EPUB with Pandoc
+        run: |
+          pandoc -o test-build.epub manuscript/metadata.yaml $(ls manuscript/*.md | sort) --css=manuscript/style.css
+
+      - name: Run EPUBCheck (W3C Validator)
+        run: |
+          java -jar epubcheck-5.1.0/epubcheck.jar test-build.epub
