@@ -2,7 +2,7 @@ name: Build EPUB
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "production" ]
   workflow_dispatch:
 
 jobs:
@@ -29,20 +29,10 @@ jobs:
             -o output/product-quality-management.epub \
             --toc \
             --toc-depth=2 \
-            --css=manuscript/style.css \
-            --epub-cover-image=images/cover.png 2>/dev/null || \
-          pandoc \
-            manuscript/metadata.yaml \
-            manuscript/00_intro.md \
-            manuscript/01_chapter1.md \
-            manuscript/99_afterword.md \
-            -o output/product-quality-management.epub \
-            --toc \
-            --toc-depth=2 \
             --css=manuscript/style.css
 
       - name: Upload EPUB Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: product-quality-management-epub
+          name: ${{ github.ref_name == 'production' && 'product-quality-management-release-epub' || 'product-quality-management-dev-epub' }}
           path: output/product-quality-management.epub
