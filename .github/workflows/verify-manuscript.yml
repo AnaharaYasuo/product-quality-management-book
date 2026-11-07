@@ -25,12 +25,11 @@ jobs:
 
       - name: Run Markdownlint
         run: |
-          markdownlint "manuscript/*.md" --ignore "manuscript/style.css" || echo "Markdownlint warnings checked"
+          markdownlint "manuscript/*.md" --ignore "manuscript/style.css"
 
-      - name: Run Python Manuscript Linter & DoD Auditor
+      - name: Run Python Manuscript Linter
         run: |
           python3 tools/lint_manuscript.py
-          python3 tools/audit_book_dod.py || true
 
   link-check:
     name: Dead Link Checker (Lychee DAST)
@@ -43,7 +42,7 @@ jobs:
         uses: lycheeverse/lychee-action@v1
         with:
           args: "--verbose --no-progress 'manuscript/**/*.md' 'README.md'"
-          fail: false
+          fail: true
 
   epub-validation:
     name: EPUB Build and EPUBCheck
@@ -66,6 +65,6 @@ jobs:
         run: |
           pandoc -o test-build.epub manuscript/metadata.yaml $(ls manuscript/*.md | sort) --css=manuscript/style.css
 
-      - name: Run EPUBCheck
+      - name: Run EPUBCheck (W3C Validator)
         run: |
           java -jar epubcheck-5.1.0/epubcheck.jar test-build.epub
