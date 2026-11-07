@@ -25,7 +25,7 @@ jobs:
 
       - name: Run Markdownlint
         run: |
-          markdownlint "manuscript/*.md" --ignore "manuscript/style.css"
+          markdownlint "manuscript/*.md" --config ".markdownlint.yaml" --ignore "manuscript/style.css"
 
       - name: Run Python Manuscript Linter
         run: |
