@@ -1,0 +1,9 @@
+# Build outputs
+output/
+*.epub
+*.pdf
+*.mobi
+
+# OS files
+.DS_Store
+Thumbs.db
