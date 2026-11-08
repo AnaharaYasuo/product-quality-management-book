@@ -20,10 +20,10 @@ flowchart TD
     end
 
     subgraph VerificationGates["PR時点でのシフトレフト検証ゲート"]
-        G1["セキュリティ・コンプライアンス（tfsec, Checkov, Trivy）"]
-        G2["コスト影響度・予算ゲート（Infracost）"]
-        G3["サプライチェーン防御（Actionピン留め, OIDC, 最小権限）"]
-        G4["AI差分監査（IAM権限爆発検知・破壊的変更警告）"]
+        G1["① 静的セキュリティ (Checkov / Trivy)"]
+        G2["② コスト予算ゲート (Infracost)"]
+        G3["③ サプライチェーン防御 (SHA固定 / OIDC)"]
+        G4["④ AI差分監査 (IAM権限・破壊変更検知)"]
     end
 
     InfrastructureArtifacts --> VerificationGates
@@ -339,6 +339,8 @@ LLMを用いたAI確証エージェントは、Terraformの差分と既存のイ
   }
 }
 ```
+
+上記のJSON監査プロンプトをGitHub Actionsから実行する際は、まず `terraform show -json tfplan.binary > plan.json` で差分を出力します。これをPythonスクリプトや `anthropics/claude-code-action` 等でLLMへ渡し、応答の `.status == "BLOCKED"` を `jq -e` で判定してCIの終了コードに連動させます。
 
 ### 2. 実践：PythonによるTerraform Plan破壊的変更検知スクリプト
 

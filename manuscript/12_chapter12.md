@@ -240,7 +240,7 @@ jobs:
         run: npx danger ci --failOnErrors=true
 ```
 
-※初回実行時のトラブルシューティング：近年のGitHub Actionsでは、リポジトリのデフォルト `GITHUB_TOKEN` 権限が読み取り専用（Read-only）に制限されているケースが多く見られます。そのまま `npx danger ci` を実行すると、`403 Resource not accessible by integration` エラーでコメント投稿に失敗するため注意してください。上記のようにワークフロー内に `permissions: pull-requests: write` を明示することで、初回から確実に動作させることができます。
+※初回実行時のトラブルシューティング：近年のGitHub Actionsでは、リポジトリのデフォルト `GITHUB_TOKEN` 権限が読み取り専用（Read-only）に制限されているケースが多く見られます。そのまま `npx danger ci` を実行すると、`403 Resource not accessible by integration` エラーでコメント投稿に失敗するため注意してください。上記のようにワークフロー内に `permissions: pull-requests: write` を明示することで、初回から確実に動作させることができます。また、PR変更行数の上限閾値（`MAX_CHANGED_LINES = 500`）は現場に応じた調整が有効です。初期構築期や自動生成コードが多い現場ではまず `800〜1,000行（Warnのみ）` から緩やかに始め、逆に決済コア等の高信頼性領域では `300行（超過時はFail）` に引き締めるなど、成熟度に応じたトレードオフ調整を行ってください。
 
 ---
 
@@ -329,7 +329,8 @@ def audit_consistency(pr_body, git_diff):
         }
     }
 
-    url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}'
+    model_name = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
+    url = f'https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}'
     req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'})
     
     try:

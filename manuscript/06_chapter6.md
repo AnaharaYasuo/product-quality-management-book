@@ -166,7 +166,7 @@ func (s *OrderService) PlaceOrder(ctx context.Context, userID int, amount int) e
 }
 ```
 
-このように設計することで、単体テスト実行時に本物のデータベースや実時刻を用意することなく、メモリ上のモックを用いて全エッジケース（DBタイムアウト、うるう秒等）を1ミリ秒で完全に自動検証できるようになります。
+このように設計することで、単体テスト実行時に本物のデータベースや実時刻を用意することなく、メモリ上のモックを用いて全エッジケース（DBタイムアウト、うるう秒等）を1ミリ秒で完全に自動検証できるようになります。この「コンストラクタ経由でのインターフェース注入（Constructor Injection）」はGo言語に限らずあらゆる言語で共通です。TypeScriptでは `interface` を `constructor(private repo: OrderRepository)` に渡し、Pythonでは `typing.Protocol` や `ABC` を `__init__` に渡すことで全く同じ構造を適用できます。
 
 ---
 
@@ -218,6 +218,7 @@ AIを活用することで、人間が見落としやすい「微妙な破壊的
 
 ### [INPUT DATA]
 {OpenAPIの差分テキストまたはADR本文}
+（※入力例：`+ required: [user_id, billing_postal_code]` のような `git diff openapi.yaml` の出力結果、または新規作成したADRのMarkdownテキストをそのまま挿入します）
 
 ### [OUTPUT FORMAT]
 ```json

@@ -145,6 +145,21 @@ def calculate_review_metrics(data):
         print(f"User: {reviewer:15} | レビュー参加数: {count:3} 件 ({ratio:5.1f}%)")
     gini = compute_gini_coefficient(list(reviewer_counts.values()))
     print(f"レビュアー偏り指数（ジニ係数）: {gini:.3f} (0.50超でSPOF警告)")
+
+if __name__ == "__main__":
+    import sys
+    owner, repo = (sys.argv[1], sys.argv[2]) if len(sys.argv) >= 3 else ("my-org", "my-repo")
+    calculate_review_metrics(fetch_pull_requests(owner, repo, os.environ.get("GITHUB_TOKEN", "")))
+```
+
+```bash
+# CLIでの実行コマンドと出力サンプル（リポジトリルートの tools/ 配下に配置して実行）
+$ python tools/analyze_review_bottlenecks.py my-org payment-service
+=== レビュアー負荷分散分析 ===
+User: tech-lead-A     | レビュー参加数:  68 件 ( 64.8%)
+User: senior-dev-B    | レビュー参加数:  25 件 ( 23.8%)
+User: member-C        | レビュー参加数:  12 件 ( 11.4%)
+レビュアー偏り指数（ジニ係数）: 0.533 (0.50超でSPOF警告)
 ```
 
 ---
@@ -236,7 +251,11 @@ def generate_process_diagnosis(sprint_metrics):
 | **フロー流暢性** | 初回レビュー待機時間 | 4時間以内 | 4時間〜12時間 | 12時間超（レビュー放置） |
 | **負荷均等性** | レビュアー偏り (ジニ係数) | 0.35未満 | 0.35〜0.50 | 0.50超（特定個人への負荷集中・SPOF） |
 
-合否判定において1項目でも「不合格（Fail）」となった場合、次スプリントの計画において新規機能開発の比率を抑制し、プロセスのリファクタリングおよび自動化整備に工数を強制配分する規律を設ける。
+合否判定において1項目でも「不合格（Fail）」となった場合、次スプリントの計画において新規機能開発の比率を抑制し、プロセスのリファクタリングおよび自動化整備に工数を強制配分する規律を設ける。具体的には、指標が「警告（Warn）」から「不合格（Fail）」へ悪化した瞬間に以下の3ステップのトリアージフローを自動発動させる。
+
+1. **即時アラートと原因分類（Day 1）**: AIスクラムマスターが該当指標の悪化要因（例：巨大PRの混入、特定レビュアーの不在、FlakyテストによるCI再実行多発）を特定し、レトロスペクティブの最優先議題としてロックする。
+2. **キャパシティの強制予約（Sprint Planning）**: 次スプリントの開発キャパシティの20%（5営業日のうち1日分）を「プロセス負債返済枠」として天引きし、機能ストーリーの投入量を物理的に制限する。
+3. **ガードレール改修のコミット（Sprint Execution）**: CODEOWNERSのラウンドロビン化やPR行数上限の引き下げなど、機械的設定の変更PRをマージして指標がWarn以下へ回復したことを確認してから通常運転へ復帰する。
 
 ---
 

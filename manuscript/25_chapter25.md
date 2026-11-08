@@ -276,16 +276,19 @@ class ProductValidationAuditor:
 
 def fetch_metrics_from_db_or_api(dsn: str) -> List[FeatureUsageMetric]:
     """実運用でのデータ取得イメージ：DWH（BigQuery / PostgreSQL）やPostHog APIから直近30日の機能別集計を取得する接続アダプタ"""
-    # 例: SQLAlchemy や BigQuery Client を用いてイベントログテーブルから集計取得
+    # [連携パターン1: BigQuery / PostgreSQL のイベントテーブルから直接SQL集計する場合]
     # query = """
-    #   SELECT feature_id, feature_name, COUNT(DISTINCT exposed_user_id) AS total_users_exposed,
-    #          COUNT(DISTINCT started_user_id) AS started_count, COUNT(DISTINCT completed_user_id) AS completed_count,
-    #          AVG(duration_sec) AS avg_duration_sec, SUM(CASE WHEN is_error THEN 1 ELSE 0 END) AS error_count
-    #   FROM analytics_feature_events WHERE event_date >= CURRENT_DATE - INTERVAL '30 days'
-    #   GROUP BY feature_id, feature_name
+    #   SELECT feature_id, ANY_VALUE(feature_name) AS feature_name,
+    #          COUNT(DISTINCT CASE WHEN event_type = 'feature_exposed' THEN user_id END) AS total_users_exposed,
+    #          COUNT(DISTINCT CASE WHEN event_type = 'feature_started' THEN user_id END) AS started_count,
+    #          COUNT(DISTINCT CASE WHEN event_type = 'feature_completed' THEN user_id END) AS completed_count,
+    #          AVG(CASE WHEN event_type = 'feature_completed' THEN duration_sec END) AS avg_duration_sec,
+    #          COUNTIF(event_type = 'feature_error') AS error_count
+    #   FROM `my_project.analytics.user_events` WHERE event_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
+    #   GROUP BY feature_id
     # """
-    # with sqlalchemy.create_engine(dsn).connect() as conn:
-    #     return [FeatureUsageMetric(**dict(row._mapping)) for row in conn.execute(sqlalchemy.text(query))]
+    # [連携パターン2: PostHog HogQL API / Query Endpoint を用いてSaaSから直接JSON取得する場合]
+    # PostHogのQuery APIエンドポイント（/api/projects/<project_id>/query/）へ {"query": {"kind": "HogQLQuery", "query": query}} をPOST送信
     return []
 
 
@@ -410,12 +413,14 @@ jobs:
 
 次回リリース予定の重要機能について、以下の項目をチーム（PdM、エンジニア、QA）で合意してください。
 
-- **対象機能名**:
-- **解決したいユーザーの真の課題**:
-- **有効性の測定方法（タスク完了イベント）**:
-- **効率性の測定方法（平均完了時間）**:
-- **リリース後30日時点での合否判定基準（目標完了率・採用率）**:
-- **不合格（未達）だった場合の撤退・ピボット基準**:
+| 監査項目 | 記入ガイドライン・質問 | 自チームの合意内容（記入欄・記入例） |
+| :--- | :--- | :--- |
+| **1. 対象機能名** | 今回リリース・監査する機能は何か？ | （例：AI議事録自動要約＆ToDo抽出ボタン） |
+| **2. 解決する真の課題** | ユーザーのどの痛みを解消する仮説か？ | （例：会議後の議事録清書に毎回30分かかっている苦痛の解消） |
+| **3. 有効性（ISO 25019）** | 何をもってタスク完了とみなすか？ | （例：要約生成後に「Slackへ共有」または「保存」が押された割合 ≥ 75%） |
+| **4. 効率性（ISO 25019）** | 従来比でどれだけ時間を短縮するか？ | （例：ボタン押下から共有完了までの平均所要時間 ≤ 60秒） |
+| **5. 30日後存続基準** | リリース30日後の採用率の合格ラインは？ | （例：対象画面訪問ユーザーのうち週次利用率 ≥ 10.0%） |
+| **6. 撤退・削除基準** | 未達時にいつ・どう廃止（Sunset）するか？ | （例：60日時点で利用率1%未満ならブラウンアウトを経てコード完全削除） |
 
 ---
 

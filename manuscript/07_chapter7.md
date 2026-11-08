@@ -179,10 +179,20 @@ if (hasAppChanges && !hasTestChanges) {
 
 なお、大規模プロジェクトやモノレポ（Monorepo）環境にDangerやSemgrepをスケールさせる際は、リポジトリ全体を一律スキャンするとCI時間が肥大化してしまいます。そのため、`danger.git.modified_files` や `semgrep ci --baseline-commit origin/main` を活用します。これらを用いて、「変更されたパッケージ（Workspace）および差分ファイルのみ」にターゲットを絞る差分実行（Differential Scan）を構成するのが鉄則です。
 
-```bash
-# 大規模モノレポにおけるSemgrep差分スキャン実行コマンド例（自動生成コードを除外し変更行のみ高速検査）
-git fetch origin main --depth=1
-semgrep ci --config .semgrep/security-rules.yaml   --baseline-commit origin/main   --exclude "src/generated/**" --exclude "**/migrations/**"
+```yaml
+# .github/workflows/monorepo-semgrep-diff.yml（fetch-depth: 0 を含む差分スキャンの全体像）
+jobs:
+  semgrep-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # ベースブランチとの共通祖先コミットを取得するため必須
+      - name: Run Differential Semgrep Scan
+        run: |
+          semgrep ci --config .semgrep/security-rules.yaml \
+            --baseline-commit origin/main \
+            --exclude "src/generated/**" --exclude "**/migrations/**"
 ```
 
 この際、GitHub Actionsのデフォルト設定（`fetch-depth: 1` の浅いクローン）のままだと、ベースブランチ（`origin/main`）のコミット履歴が見つからず差分計算が失敗します。必ず `fetch-depth: 0` を指定するか、事前に `git fetch origin main` を実行することが実運用上の重要な注意点です。自動生成コード（OpenAPI生成クライアントやマイグレーションファイル等）を計算対象から除外することで、数百万行規模のモノレポでも10秒以内の高速フィードバックを維持できます。
@@ -340,7 +350,7 @@ GitHub CopilotやChatGPT、Claude等のLLMによるコード生成が一般化�
       reviewdog -efm="%f:%l:%c: %m" -name="ai-assurance-auditor" -reporter=github-pr-review -fail-on-error=true
 ```
 
-※実運用上の注意点として、LLMのAPIキー（`GEMINI_API_KEY` 等）は必ずGitHub Encrypted Secretsで秘匿管理し、外部フォークからのPR（`pull_request_target`）ではシークレットを露出させないでください。また大量のPRが同時実行された際のAPIレートリミット（HTTP 429）対策として、指数バックオフ（Exponential Backoff）によるリトライと差分トークン長の上限カット（例：最大30,000文字まで）を実装しておくことが必須です。
+※実運用上の注意点として、LLMのAPIキー（`GEMINI_API_KEY` 等）は必ずGitHub Encrypted Secretsで秘匿管理し、外部フォークからのPR（`pull_request_target`）ではシークレットを露出させないでください。また大量のPRが同時実行された際のAPIレートリミット（HTTP 429）対策として、指数バックオフ（Exponential Backoff）によるリトライと差分トークン長の上限カット（例：最大30,000文字まで）を実装しておくことが必須です。さらに上記の `jq` パイプ連携では、指摘が0件（空配列）の際にエラーとならないよう `jq -r '.findings[]? | ...'`（オプショナル演算子 `?`）を指定します。また導入初期は `-fail-on-error=false`（警告のみ）で運用し、プロンプトの精度が安定してから `true` に切り替えると安全です。
 
 ### 3. 実践：Pythonによる新規依存パッケージ自動検証スクリプト
 
