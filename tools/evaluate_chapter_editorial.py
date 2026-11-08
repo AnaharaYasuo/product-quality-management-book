@@ -122,12 +122,17 @@ EDITORIAL_PROMPT_TEMPLATE = """
 """
 
 def evaluate_with_llm(filename: str, content: str, api_key: str) -> Dict[str, Any]:
-    """Gemini APIを呼び出して評価を行う (gemini-3.5-flash-lite / gemini-3.1-flash-lite)"""
+    """Gemini APIを呼び出して評価を行う (gemini-3.5-flash-lite / gemini-3.1-flash-lite / gemini-flash-lite-latest)"""
     prompt = EDITORIAL_PROMPT_TEMPLATE.format(filename=filename, content=content)
 
-    # 優先モデルの探索順: 環境変数指定 -> gemini-3.5-flash-lite -> gemini-3.1-flash-lite
+    # 優先モデルの探索順: 環境変数指定 -> gemini-3.5-flash-lite -> gemini-3.1-flash-lite -> gemini-flash-lite-latest
     env_model = os.environ.get("EDITORIAL_REVIEW_MODEL")
-    candidate_models = [env_model] if env_model else ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
+    candidate_models = [env_model] if env_model else [
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-3.1-flash-lite-preview"
+    ]
 
     response_text = ""
     try:
