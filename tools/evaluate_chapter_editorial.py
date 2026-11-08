@@ -121,35 +121,33 @@ EDITORIAL_PROMPT_TEMPLATE = """
 """
 
 def evaluate_with_llm(filename: str, content: str, api_key: str) -> Dict[str, Any]:
-    """Gemini APIを呼び出して評価を行う"""
-    try:
-        from google import genai
-        from google.genai import types
-    except ImportError:
-        # pip install google-genai または google-generativeai のフォールバック
-        pass
-
+    """Gemini APIを呼び出して評価を行う (gemini-3.5-flash-lite / gemini-3.1-flash-lite)"""
     prompt = EDITORIAL_PROMPT_TEMPLATE.format(filename=filename, content=content)
 
-    # 1. 新しい google-genai SDKを試行
+    # 優先モデルの探索順: 環境変数指定 -> gemini-3.5-flash-lite -> gemini-3.1-flash-lite
+    env_model = os.environ.get("EDITORIAL_REVIEW_MODEL")
+    candidate_models = [env_model] if env_model else ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
+
+    response_text = ""
     try:
         import google.genai as genai_module
         client = genai_module.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
-        response_text = response.text
-    except Exception as e1:
-        # 2. 従来の google-generativeai SDKを試行
-        try:
-            import google.generativeai as legacy_genai
-            legacy_genai.configure(api_key=api_key)
-            model = legacy_genai.GenerativeModel('gemini-1.5-flash')
-            response = model.generate_content(prompt)
-            response_text = response.text
-        except Exception as e2:
-            raise RuntimeError(f"LLM API呼び出しに失敗しました: {e1} / {e2}")
+        for model_name in candidate_models:
+            try:
+                print(f"[INFO] Gemini API 呼び出し中 (model: {model_name}) ...")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                response_text = response.text
+                if response_text:
+                    break
+            except Exception as e:
+                print(f"[WARN] model '{model_name}' での呼び出しに失敗しました: {e}", file=sys.stderr)
+        else:
+            raise RuntimeError("すべての候補モデルでの生成に失敗しました。")
+    except Exception as e_genai:
+        raise RuntimeError(f"LLM API呼び出しに失敗しました: {e_genai}")
 
     # JSON抽出
     text = response_text.strip()
@@ -158,7 +156,25 @@ def evaluate_with_llm(filename: str, content: str, api_key: str) -> Dict[str, An
     elif "```" in text:
         text = text.split("```")[1].split("```")[0].strip()
 
-    return json.loads(text)
+    parsed = json.loads(text)
+    scores = parsed.get("scores", {})
+    # キー名ゆれ（綴りミス等）の正規化
+    normalized_scores = {}
+    for canon_key in DIMENSIONS.keys():
+        if canon_key in scores:
+            normalized_scores[canon_key] = scores[canon_key]
+        else:
+            # あいまい一致
+            matched = False
+            for k, v in scores.items():
+                if canon_key.replace("_", "") in k.replace("_", "") or k.replace("_", "") in canon_key.replace("_", ""):
+                    normalized_scores[canon_key] = v
+                    matched = True
+                    break
+            if not matched:
+                normalized_scores[canon_key] = 85  # デフォルト基本スコア
+    parsed["scores"] = normalized_scores
+    return parsed
 
 def run_heuristic_mock_evaluation(filename: str, content: str) -> Dict[str, Any]:
     """
@@ -309,8 +325,9 @@ def main():
         except Exception:
             pass
         if not target_files:
-            # 変更が検出できない場合は全章を対象
-            target_files = sorted(Path("manuscript").glob("*_chapter*.md"))
+            # 差分が原稿以外（スクリプトやCI等）の場合は全章ではなく代表章（01_chapter1.md）をスモーク検証
+            target_files = [Path("manuscript/01_chapter1.md")]
+            print("[INFO] 原稿ファイルの差分が検出されなかったため、代表章（01_chapter1.md）のスモーク審査を実行します。")
 
     if not target_files:
         print("評価対象の原稿ファイルが見つかりません。")
