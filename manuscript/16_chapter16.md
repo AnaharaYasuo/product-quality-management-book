@@ -103,7 +103,7 @@ sequenceDiagram
 
 ### SLSA Level 3達成のためのCosign署名
 
-Sigstoreプロジェクトの `Cosign` を利用し、OIDC（OpenID Connect）連携による鍵不要（Keyless）署名をCI/CD上で実行する。これにより、Kubernetesのアドミッションコントローラ（Kyverno等）で「GitHub Actionsの正規ワークフローで署名されたイメージのみ起動を許可する」という決定論的防御が実現する。
+Sigstoreプロジェクトの `Cosign` を利用し、OIDC（OpenID Connect）連携による鍵不要（Keyless）署名をCI/CD上で実行する。なぜ従来のPGP署名のように「秘密鍵の生成・保管・ローテーション」が一切不要になるのでしょうか。それはビルド実行時にGitHub Actionsが発行する身分証（OIDCトークン）を認証局（Sigstore Fulcio）へ提示し、**「わずか10分間だけ有効な使い捨ての署名証明書」を発行して署名した直後に、秘密鍵をメモリ上から即座に破棄する**からである。「有効期間中（その10分間のうち）に本当に正規のCIで署名が行われた」という事実と公開鍵証明書は、改ざん不能な公開透明性ログ（Rekor）にタイムスタンプ付きで永久刻印されるため、後からデプロイ時に秘密鍵を使わずとも真正性を100%数学的に検証できる。これにより、Kubernetesのアドミッションコントローラ（Kyverno等）で「GitHub Actionsの正規ワークフローで署名されたイメージのみ起動を許可する」という決定論的防御が実現する。
 
 ```bash
 # GitHub ActionsのOIDCトークンを用いて署名を実行
@@ -189,6 +189,39 @@ def audit_dependency_update(package_name, old_version, new_version, release_note
     with urllib.request.urlopen(req) as resp:
         res = json.loads(resp.read().decode("utf-8"))
         return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
+
+def post_github_pr_comment(repo: str, pr_number: int, review_json: dict):
+    """AIの審査結果JSONを整形し、GitHub REST API経由でPRへ自動コメント投稿する糊代関数"""
+    gh_token = os.environ.get("GITHUB_TOKEN")
+    if not gh_token:
+        print(json.dumps(review_json, ensure_ascii=False, indent=2))
+        return
+    body_md = (
+        f"### 🛡️ AI Dependency Security Review\n"
+        f"- **Risk Level**: `{review_json.get('risk_level')}`\n"
+        f"- **Recommendation**: **{review_json.get('recommendation')}**\n"
+        f"- **Summary**: {review_json.get('summary')}\n"
+    )
+    api_url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
+    req = urllib.request.Request(
+        api_url,
+        data=json.dumps({"body": body_md}).encode("utf-8"),
+        headers={"Authorization": f"Bearer {gh_token}", "Accept": "application/vnd.github+json"},
+        method="POST"
+    )
+    urllib.request.urlopen(req, timeout=10)
+
+if __name__ == "__main__":
+    # GitHub Actions上で Dependabot PR の環境変数を受け取って審査＆コメント投稿まで一気通貫で実行
+    result = audit_dependency_update(
+        package_name=os.environ.get("DEP_PACKAGE", "urllib3"),
+        old_version=os.environ.get("DEP_OLD_VER", "1.26.0"),
+        new_version=os.environ.get("DEP_NEW_VER", "2.2.1"),
+        release_notes=os.environ.get("DEP_RELEASE_NOTES", "Removed deprecated TLSv1.0 support."),
+        diff_stat=os.environ.get("DEP_DIFF_STAT", "requirements.txt | 2 +-")
+    )
+    if isinstance(result, dict) and os.environ.get("GITHUB_REPOSITORY") and os.environ.get("PR_NUMBER"):
+        post_github_pr_comment(os.environ["GITHUB_REPOSITORY"], int(os.environ["PR_NUMBER"]), result)
 ```
 
 ---

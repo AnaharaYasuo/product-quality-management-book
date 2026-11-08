@@ -219,6 +219,12 @@ for (const file of manuscriptFiles) {
 # .github/workflows/danger-pr-guard.yml
 name: Danger PR Guardrail
 on: [pull_request]
+
+# 初回導入時のハマり防止：PRへのコメント投稿とステータス更新のため以下の権限スコープ明示が必須
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   danger:
     runs-on: ubuntu-latest
@@ -233,6 +239,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx danger ci --failOnErrors=true
 ```
+
+※初回実行時のトラブルシューティング：近年のGitHub Actionsでは、リポジトリのデフォルト `GITHUB_TOKEN` 権限が読み取り専用（Read-only）に制限されているケースが多く見られます。そのまま `npx danger ci` を実行すると、`403 Resource not accessible by integration` エラーでコメント投稿に失敗するため注意してください。上記のようにワークフロー内に `permissions: pull-requests: write` を明示することで、初回から確実に動作させることができます。
 
 ---
 
@@ -349,6 +357,8 @@ if __name__ == '__main__':
     print('AI Gatekeeper Audit PASSED')
     sys.exit(0)
 ```
+
+※JSON Modeスキーマ検証とリトライ設計の補足：Gemini APIの `response_schema`（Structured Outputs）を指定することで、出力形式の揺れは大幅に抑えられます。ただし巨大なPR差分を送信した際には、出力の途中切れ（`finishReason: MAX_TOKENS`）による `json.JSONDecodeError` や一時的な通信瞬断が発生することがあります。実運用では `git_diff` を先頭20,000文字にトランケートした上でタイムアウトを `15〜20秒` に設定します。さらにHTTP 429/503発生時には2秒・4秒の指数バックオフ（最大2回リトライ）を挟んでから上記の決定論的フォールバックへ移行する構成とすると、万全の可用性を担保できます。
 
 ---
 

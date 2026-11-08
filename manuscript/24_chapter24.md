@@ -68,6 +68,13 @@ flowchart TD
 4. **第4層：実行時オブザーバビリティ（Runtime Telemetry Anchors）**:
    - 本番トラフィックに対するSLI/SLO監視。AIの出力がどれほど魅力的であっても、レイテンシやエラー率が閾値を超えた瞬間に自動的に切り離す。
 
+> **[補足コラム] 主要言語別・第1層〜第3層の代表的決定論的アンカーツール対応表**
+>
+> - **Python**: 【第1層】`mypy --strict` / `pyright` ＋ 【第2層】`Pydantic` / `deal` ＋ 【第3層】`pytest` / `testcontainers-python` / `mutmut`
+> - **TypeScript / Node.js**: 【第1層】`tsc --noEmit (strict: true)` ＋ 【第2層】`Zod` / `io-ts` ＋ 【第3層】`Vitest` / `Playwright` / `Stryker`
+> - **Rust**: 【第1層】`rustc`（所有権・借用チェッカー）/ `clippy` ＋ 【第2層】`serde` / `garde`（型状態パターン） ＋ 【第3層】`cargo test` / `proptest` / `cargo-mutants`
+> - **Go**: 【第1層】`go vet` / `staticcheck` ＋ 【第2層】`ozzo-validation` / `cue` ＋ 【第3層】`go test -race` / `testcontainers-go`
+
 ### 実装例：Pydanticによる実行時契約アンカー
 
 AIエージェントが生成するデータ構造やAPIペイロードが、実行時に不変量を満たしているかを厳格に保証するコード例です。
@@ -182,6 +189,8 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+
+※大規模リポジトリにおける変異テスト（`mutmut`）運用の注意点：第1層（`mypy`）や第2層（`pytest`）が数秒〜数十秒で完了するのに対し、第3層の変異テスト（`mutmut`）はコードベース全体にそのまま適用すると実行時間が長大になりやすい。実務導入時の罠を防ぐため、PRごとのCIでは `git diff --name-only origin/main...HEAD -- 'src/core/**/*.py'` で変更ファイルを抽出する。この「変更されたコアファイルのみ」を `--paths-to-mutate` に渡して差分実行（1〜2分以内）する。そして、リポジトリ全域に対するフル変異テストは夜間（Nightly）の定期ジョブとして分離運用するのが鉄則である。
 
 ---
 

@@ -40,6 +40,8 @@ flowchart LR
     CI1 -->CI2 --> CI3 --> CI4
 ```
 
+上図のLevel 3（Component）やLevel 4（Code）のCIマッピングでは、言語別のアーキテクチャ検証ツールを活用します。代表例としてJava/Kotlinの **ArchUnit**、Pythonの **import-linter（または pytest-archon）**、TypeScriptの **dependency-cruiser** が挙げられます。これにより、「Domain層のクラスがInfrastructure層のDBドライバを直接インポートしてはならない」といった依存方向ルールを、単体テストとして数ミリ秒で自動検証できます。さらにDI（依存性注入）コンテナ（Goの `wire`、Pythonの `dependency-injector`、TypeScriptの `tsyringe` 等）を導入します。これと静的型検査（`mypy --strict` / `tsc --noEmit`）を組み合わせることで、設計図と実装コードの乖離をコンパイル時点で物理的に阻止できます。
+
 ### 2. ADR（Architecture Decision Record：アーキテクチャ意思決定記録）
 
 「なぜそのデータベースを選んだのか」「なぜGraphQLではなくgRPCを採用したのか」といった重要な設計判断を、Gitリポジトリ内にMarkdownとして記録する成果物です。後から参画したエンジニアが「なぜこうなっているのか」を理解し、不毛な再議論を防ぐための必須ドキュメントです。
@@ -231,6 +233,38 @@ AIを活用することで、人間が見落としやすい「微妙な破壊的
   ],
   "remediation": "後方互換性を保つため、新フィールドはオプショナルとし、段階的移行期間を設けてください。"
 }
+```
+
+### GitHub ActionsパイプラインへのOpenAPI互換性＆AI監査の組み込み例
+
+上記のSpectralリントおよびAI後方互換性監査エージェントを、PR作成時に自動実行して破壊的変更をブロックするGitHub Actionsワークフロー（`.github/workflows/architecture-audit.yml`）の実装例は以下の通りです。
+
+```yaml
+# .github/workflows/architecture-audit.yml
+name: Architecture & API Contract Gate
+on:
+  pull_request:
+    paths:
+      - 'openapi/**'
+      - 'docs/adr/**'
+
+jobs:
+  api-and-adr-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Spectral OpenAPI Linter
+        run: npx @stoplight/spectral-cli lint openapi/*.yaml
+
+      - name: Run AI Breaking Change & ADR Auditor
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          git diff origin/main...HEAD -- openapi/ docs/adr/ > arch_diff.patch
+          python3 tools/audit_architecture_diff.py arch_diff.patch
 ```
 
 ---

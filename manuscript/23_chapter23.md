@@ -91,6 +91,8 @@ Paved Pathを具現化する組織モデルとして急速に台頭している�
 
 2つの指標がバランスよく保たれているとき、初めてプロセスは「真の健全性」を獲得する。
 
+なお、エンジニアが数名〜十数名規模のスタートアップや、計測基盤がまだ整っていないリソース制約の厳しい組織においては、最初から上記の4ペア（8指標）をすべて同時に計測しようとしてはならない。最小構成のスタートガイド（優先順位）として、まずはGitHubの標準ログとCIの終了ステータスだけで今日からゼロコストで自動算出できる**第1優先ペア「デプロイ頻度（DF）× 変更失敗率（CFR）」**の1組だけから導入を開始してほしい。その後、コードレビューの滞留や手戻りが課題になってきた段階で**第2優先ペア「PRサイクルタイム × レビュー指摘密度」**を追加し、決済などのコア領域が固まった段階で**第3優先ペア「行カバレッジ × 変異スコア」**へと段階的に広げるのが、計測疲れを起こさない鉄則である。
+
 ### グッドハートの法則を無力化する「3次元メトリクス空間」
 
 ペアメトリクスをさらに進化させ、「スピード（Speed）」「品質・安定性（Quality）」「開発者体験（DevEx）」の3つの直交する軸でダッシュボードを構成する。
@@ -160,20 +162,6 @@ def audit_test_file(file_path):
 
     return hollow_tests
 
-def main():
-    all_hollow = {}
-    for test_file in glob.glob("tests/**/*.py", recursive=True):
-        hollow = audit_test_file(test_file)
-        if hollow:
-            all_hollow[test_file] = hollow
-
-    if all_hollow:
-        print("❌ 嘘カバレッジ（アサーションなしテスト）を検出しました:")
-        for f, tests in all_hollow.items():
-            print(f"  {f}: {tests}")
-        sys.exit(1)
-    print("✅ 全てのテスト関数に有効なアサーションが存在します。")
-
 def audit_semantic_mock_abuse_with_llm(test_code: str, api_key: str) -> dict:
     """ASTでは見抜けない『assert True』や『モック自身が返した固定値をそのままassertするだけの意味のないテスト』をLLMでセマンティック摘発"""
     import json, urllib.request
@@ -192,6 +180,37 @@ def audit_semantic_mock_abuse_with_llm(test_code: str, api_key: str) -> dict:
     with urllib.request.urlopen(req, timeout=15) as resp:
         res = json.loads(resp.read().decode("utf-8"))
         return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
+
+def main():
+    import os
+    enable_llm = "--llm-audit" in sys.argv
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+
+    all_hollow = {}
+    semantic_hacks = {}
+
+    for test_file in glob.glob("tests/**/*.py", recursive=True):
+        hollow = audit_test_file(test_file)
+        if hollow:
+            all_hollow[test_file] = hollow
+        elif enable_llm and api_key:
+            # AST検査を通過したファイルに対し、CLIオプション --llm-audit 指定時はセマンティックモック偽装検査を実行
+            with open(test_file, "r", encoding="utf-8") as f:
+                verdict = audit_semantic_mock_abuse_with_llm(f.read(), api_key)
+            if verdict.get("is_hollow_hack"):
+                semantic_hacks[test_file] = verdict.get("reason", "Semantic mock abuse detected")
+
+    if all_hollow or semantic_hacks:
+        if all_hollow:
+            print("❌ 嘘カバレッジ（アサーションなしテスト）を検出しました:")
+            for f, tests in all_hollow.items():
+                print(f"  {f}: {tests}")
+        if semantic_hacks:
+            print("❌ セマンティック形骸化ハック（トートロジー・恒真アサーション）を検出しました:")
+            for f, reason in semantic_hacks.items():
+                print(f"  {f}: {reason}")
+        sys.exit(1)
+    print("✅ 全てのテスト関数に有効なアサーションが存在します。")
 
 if __name__ == "__main__":
     main()

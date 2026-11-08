@@ -81,6 +81,14 @@ def db_engine(postgres_container):
 
 Stripe決済やSendGridメール送信などのサードパーティSaaSは、テスト環境から直接叩くべきではない。レートリミットや通信遅延、予期せぬダウンタイムによってテストが不安定化するためである。`WireMock` を用いて外部APIをローカルでスタブ化し、HTTP 500エラーやタイムアウトなどのエッジケースを決定論的に注入する。
 
+### 14.2.3 大規模開発におけるコンテナ起動オーバーヘッドの削減とCIキャッシュ戦略
+
+TestcontainersやWireMockコンテナは決定論的な隔離環境を実現する一方で、数百本のテストファイルごとに毎回コンテナのイメージプルと起動・破棄を繰り返すと、CIの実行時間が数分〜十数分へと肥大化する。大規模開発でこのオーバーヘッドを極小化するための鉄則は以下の3点である。
+
+1. **セッションスコープ共有と高速トランケート**: 上記コード例のように、コンテナの起動自体は `scope="session"` でテスト実行全体につき1回のみとします。各テスト関数（`scope="function"`）の終了時にはコンテナを再起動せず、`TRUNCATE TABLE ... RESTART IDENTITY CASCADE` やトランザクションロールバックで数ミリ秒のうちにDB状態だけを初期化します。
+2. **Testcontainers再利用モード（Reusable Containers）**: ローカル開発時や同一CIランナー内では、コンテナの再利用機能を活用する。環境変数 `TESTCONTAINERS_RYUK_DISABLED=true` や `.testcontainers.properties` の `testcontainers.reuse.enable=true` を設定し、起動済みコンテナへ再接続する。
+3. **CIレイヤーでのDockerイメージ事前キャッシュ**: GitHub Actions等のエフェメラル環境では、毎回Docker Hubから数百MBのDBイメージを取得する通信時間がボトルネックとなります。そのため、GitHub Container Registry（GHCR）ミラーや `actions/cache`（または `services:` コンテナ機能）を併用し、イメージプル時間をゼロに近づけます。
+
 ---
 
 ## 14.3 Playwrightによる堅牢なE2Eテストアーキテクチャ
@@ -181,6 +189,8 @@ def repair_broken_locator(broken_locator, page_dom_snippet, target_intent):
         text = res["candidates"][0]["content"]["parts"][0]["text"]
         return json.loads(text)
 ```
+
+※大規模SPAにおけるDOM肥大化とトークン上限への対策：現代のReactやNext.js等で構築された画面の `page.content()`（HTML全文）は容易に数十万文字に達し、そのままプロンプトに投入するとコンテキスト長の制限超過やAPIコストの高騰、推論精度の低下を招く。実務で `page_dom_snippet` を抽出する際は、`<script>` や `<style>`、`<svg>`、Base64画像、冗長なCSSクラス属性をBeautifulSoup等で事前にストリップ（軽量化）します。あるいはPlaywrightの `page.locator('main').ariaSnapshot()`（ARIAツリーのスナップショット）を取得して渡すことで、トークン量を95%以上削減しつつ `getByRole` の推論精度を劇的に高められます。
 
 ### 自己修復テストにおける「誤修復の自動マージ」を防ぐHuman-in-the-Loopガードレール
 
