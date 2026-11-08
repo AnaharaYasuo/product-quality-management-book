@@ -177,7 +177,15 @@ if (hasAppChanges && !hasTestChanges) {
 }
 ```
 
-なお、大規模プロジェクトやモノレポ（Monorepo）環境にDangerやSemgrepをスケールさせる際は、リポジトリ全体を一律スキャンするとCI時間が肥大化してしまいます。そのため、`danger.git.modified_files` や `semgrep ci --baseline-commit origin/main` を用います。「変更されたパッケージ（Workspace）および差分ファイルのみ」をターゲットに絞る差分実行（Differential Scan）を構成するのが鉄則です。自動生成コード（OpenAPI生成クライアントやマイグレーションファイル等）は計算対象から除外することで、大規模開発でもノイズゼロの高速フィードバックを維持できます。
+なお、大規模プロジェクトやモノレポ（Monorepo）環境にDangerやSemgrepをスケールさせる際は、リポジトリ全体を一律スキャンするとCI時間が肥大化してしまいます。そのため、`danger.git.modified_files` や `semgrep ci --baseline-commit origin/main` を活用します。これらを用いて、「変更されたパッケージ（Workspace）および差分ファイルのみ」にターゲットを絞る差分実行（Differential Scan）を構成するのが鉄則です。
+
+```bash
+# 大規模モノレポにおけるSemgrep差分スキャン実行コマンド例（自動生成コードを除外し変更行のみ高速検査）
+git fetch origin main --depth=1
+semgrep ci --config .semgrep/security-rules.yaml   --baseline-commit origin/main   --exclude "src/generated/**" --exclude "**/migrations/**"
+```
+
+この際、GitHub Actionsのデフォルト設定（`fetch-depth: 1` の浅いクローン）のままだと、ベースブランチ（`origin/main`）のコミット履歴が見つからず差分計算が失敗します。必ず `fetch-depth: 0` を指定するか、事前に `git fetch origin main` を実行することが実運用上の重要な注意点です。自動生成コード（OpenAPI生成クライアントやマイグレーションファイル等）を計算対象から除外することで、数百万行規模のモノレポでも10秒以内の高速フィードバックを維持できます。
 
 ### 2. 人間が注力すべき3大レビュー観点
 
@@ -325,11 +333,14 @@ GitHub CopilotやChatGPT、Claude等のLLMによるコード生成が一般化�
 - name: Run AI Audit and Post Inline Comments
   env:
     REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
   run: |
     python3 tools/run_ai_code_audit.py --diff origin/main...HEAD > ai_findings.json
     jq -r '.findings[] | "\(.file):\(.line):1: [\(.rule_id)] \(.reason)"' ai_findings.json | \
       reviewdog -efm="%f:%l:%c: %m" -name="ai-assurance-auditor" -reporter=github-pr-review -fail-on-error=true
 ```
+
+※実運用上の注意点として、LLMのAPIキー（`GEMINI_API_KEY` 等）は必ずGitHub Encrypted Secretsで秘匿管理し、外部フォークからのPR（`pull_request_target`）ではシークレットを露出させないでください。また大量のPRが同時実行された際のAPIレートリミット（HTTP 429）対策として、指数バックオフ（Exponential Backoff）によるリトライと差分トークン長の上限カット（例：最大30,000文字まで）を実装しておくことが必須です。
 
 ### 3. 実践：Pythonによる新規依存パッケージ自動検証スクリプト
 

@@ -41,7 +41,7 @@ flowchart TD
 
 ### 17.2.1 データスイートの定義とCI実行
 
-ETL（抽出・変換・格納）パイプラインの各結節点において、データフレームやSQLテーブルに対して期待値（Expectation）を宣言的に記述する。
+ETL（抽出・変換・格納）パイプラインの各結節点において、データフレームやSQLテーブルに対して期待値（Expectation）を宣言的に記述する。以下に示すコードは、特別な設定ファイル群を事前配置しなくてもインメモリ（Ephemeral Context）で単体動作するため、`pipeline/validate_orders.py` の1ファイルを作成するだけで即座に検証可能である。
 
 ```python
 # pipeline/validate_orders.py
@@ -50,12 +50,15 @@ import pandas as pd
 import sys
 
 def validate_incoming_orders(df: pd.DataFrame):
+    # [Step 1] GXの実行コンテキストをインメモリで初期化し、Pandas用のデータソースとアセット階層を登録
     context = gx.get_context()
     data_source = context.data_sources.add_pandas("pandas_source")
     data_asset = data_source.add_dataframe_asset("orders_asset")
+    # [Step 2] データフレーム全体を1つの検証バッチ（Batch）として束ね、検査対象データを流し込む
     batch_definition = data_asset.add_batch_definition_whole_dataframe("batch_def")
     batch = batch_definition.get_batch(batch_parameters={"dataframe": df})
 
+    # [Step 3] 検証ルール群を格納するテストスイート（ExpectationSuite）を新規作成
     suite = context.suites.add(gx.ExpectationSuite(name="orders_quality_suite"))
 
     # 1. 完全性チェック: order_id は null 禁止
@@ -173,9 +176,14 @@ def repair_broken_schema(target_schema, incoming_columns_sample):
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req) as resp:
-        res = json.loads(resp.read().decode("utf-8"))
-        return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
+    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError, KeyError, TimeoutError) as e:
+        # API障害や不正なJSON出力時は、誤ったスキーマ変換を防ぐため確信度0.0を返して安全に退避（Dead Letter）へ倒す
+        print(f"[ERROR] AI Schema Healer failed ({e}). Routing batch to Dead Letter Table.")
+        return {"mapping": {}, "transformations": {}, "confidence": 0.0}
 ```
 
 ただし、本番パイプラインでLLMによるスキーマ自動修復を運用する際は、悪意ある外部入力データ（カラム名等に仕込まれたプロンプトインジェクション）や、ハルシネーションによる誤ったカラム結合（例：`user_id` と `order_id` の取り違え）に対する安全弁が不可欠である。したがって、LLMの出力はあらかじめ定義した許可リスト（ホワイトリスト化された型変換関数のみ）で厳格にバリデーションする。さらに、確信度（`confidence`）が閾値（0.95）未満の場合や金額・決済系の重要カラムが変化した場合は自動適用せず、退避テーブル（Dead Letter Table）へ生データを隔離した上でデータエンジニアへSlack通知するフォールバック処理を必ず組み込むこと。
