@@ -49,10 +49,11 @@
    - `manuscript/` 配下のMarkdownファイルおよび `metadata.yaml` などを編集。
 4. **`main` 宛てプルリクエスト（PR）の作成**
    - 変更内容を説明し、`Closes #<Issue番号>` を記載してPRを作成する。
-5. **`main` へのマージとプレビュー検証**
-   - ActionsでビルドされたEPUBで内容・レイアウトを確認。
-6. **`production` へのリリースPR**
-   - 一定のまとまり（章の完成、推敲完了時など）で `main` -> `production` のPRを作成・マージして正式リリースとする。
+5. **`main` へのマージとAI編集者レビューの通過**
+   - CIによる「LLM-as-a-Judge Editorial & UX Gate」等の品質チェックをすべてクリアして `main` へマージ。
+6. **`production` への即時反映・マージ（★絶対遵守マストルール）**
+   - **`main` へのマージで完了としてはならず、必ず `production` ブランチへのPR作成・マージまで一気通貫で完了すること**。
+   - `production` への反映が完了して初めて作業完了（Done）とみなす。
 
 ---
 
