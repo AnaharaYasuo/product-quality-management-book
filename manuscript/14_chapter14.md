@@ -193,8 +193,8 @@ def repair_broken_locator(broken_locator, page_dom_snippet, target_intent):
 | 規模区分 | 単一テスト実行時間上限 | スイート総実行時間 | フレーキー許容率 | リトライ回数制限 |
 | :--- | :--- | :--- | :--- | :--- |
 | **Small Test** | 50ミリ秒以内 | 60秒以内（並列） | 0.00%（完全決定論） | 0回（リトライ禁止） |
-| **Medium Test** | 2秒以内 | 5分以内（コンテナ並列）| 0.1%未満 | 最大1回（CI上のみ） |
-| **Large (E2E)** | 30秒以内 | 15分以内（並列シャード）| 0.5%未満 | 最大1回（隔離再試行） |
+| **Medium Test** | 2秒以内 | 5分以内（コンテナ並列） | 0.1%未満 | 最大1回（CI上のみ） |
+| **Large (E2E)** | 30秒以内 | 15分以内（並列シャード） | 0.5%未満 | 最大1回（隔離再試行） |
 
 - **マージブロック制約**: CIパイプラインにおいて、SmallおよびMediumテストの失敗は1件たりとも許容されない（Pass率 100%）。Largeテストのリトライ成功時であっても、Flakyフラグを自動起票して技術的負債として追跡する。
 
@@ -214,6 +214,7 @@ def repair_broken_locator(broken_locator, page_dom_snippet, target_intent):
 ## 14.8 実践ワークショップ：Flakyテスト撲滅演習
 
 ### 演習手順
+
 1. **ストレスリピートテストの実行**: 自チームのE2Eテストスイートから最も不安定なテストを1件選び、`npx playwright test --repeat-each 50` で50回連続実行する。
 2. **失敗ログとトレースの解析**: 失敗した試行のPlaywright Trace Viewerを開き、「DOM要素のロード待ち」「非同期API通信の遅延」「データ競合」のいずれが原因かを特定する。
 3. **ロケータとアサーションの改修**: 固定秒待機（sleep）を全廃し、`getByRole` と `expect(...).toBeVisible()` に置き換えて50回連続パスを達成する。
@@ -223,6 +224,7 @@ def repair_broken_locator(broken_locator, page_dom_snippet, target_intent):
 ## 14.9 本章のまとめと次章への接続
 
 テストの自動化とは、単に人間が手動で行っていた作業をスクリプトにするだけではない。「決定論的に動作し、高速で、メンテナンス不要な安全網」を設計・維持することである。
+
 - **Googleの規模分類**: Small/Medium/Largeの制約を守り、ピラミッドの土台を堅牢にする。
 - **隔離と独立性**: TestcontainersとWireMockで外部依存を完全遮断する。
 - **Playwrightと自己修復**: アクセシビリティ主導のロケータ設計と、LLMによるDOM自己修復で保守コストを激減させる。
