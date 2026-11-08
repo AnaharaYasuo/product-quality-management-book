@@ -39,10 +39,10 @@ Spec-Driven Development（SDD / 仕様・Issue駆動開発）の思想に基づ�
 [4. プルリクエスト (PR)] main ブランチ宛てにPRを作成 (Closes #<No>)
       │
       ▼
-[5. main へのマージ] レビュー・プレビュー確認
+[5. main へのマージ] AI編集者レビュー・品質チェック全パス確認
       │
       ▼
-[6. production へのPR & マージ] main -> production へマージして正式リリース
+[6. production へのPR & マージ] main -> production へのマージまで常に行う (マスト)
 ```
 
 ### ステップ詳細
