@@ -103,6 +103,7 @@ $$ \text{Risk Score} = \text{Severity（影響度: 1〜5）} \times \text{Likeli
 Tier 1の即死領域において、カバレッジ100%は「単にコード行が実行された」ことを意味するに過ぎず、「欠陥を本当に検知できるテストになっているか」は保証されない。
 
 例えば、以下のような無意味なテストであってもカバレッジは100%を記録してしまう：
+
 ```python
 def test_payment_processing():
     result = process_payment(amount=1000, user_id=42)
