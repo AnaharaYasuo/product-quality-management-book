@@ -1,15 +1,6 @@
 name: Editorial Review & Human Experience Quality Gate
 
 on:
-  workflow_dispatch:
-    inputs:
-      review_all:
-        description: '全章レビューを実行するか (true: 全章, false: 差分のみ)'
-        required: false
-        default: 'false'
-        type: boolean
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
     paths:
@@ -41,18 +32,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install google-genai google-generativeai
 
-      - name: Run Editorial Review Quality Gate
+      - name: Run Editorial Review Quality Gate (Diff only)
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          if [ "${{ inputs.review_all }}" = "true" ]; then
-            python tools/evaluate_chapter_editorial.py --all --report-out editorial_review_report.md --json-out editorial_review_result.json
-          else
-            python tools/evaluate_chapter_editorial.py --report-out editorial_review_report.md --json-out editorial_review_result.json
-          fi
+          python tools/evaluate_chapter_editorial.py --report-out editorial_review_report.md --json-out editorial_review_result.json
 
       - name: Comment PR with Review Report
-        if: github.event_name == 'pull_request' && always()
+        if: always()
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
