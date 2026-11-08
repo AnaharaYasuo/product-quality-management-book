@@ -1,0 +1,91 @@
+name: Full Book Editorial Review (Standalone)
+
+on:
+  workflow_dispatch:
+    inputs:
+      auto_create_issues:
+        description: '指摘事項や基準未達の章について自動でGitHub Issueを起票するか'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  full-book-review:
+    name: Full Book LLM Editorial Review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code (main branch)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install google-genai google-generativeai
+
+      - name: Run Full Book Review on Main
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python tools/evaluate_chapter_editorial.py --all --report-out full_book_review_report.md --json-out full_book_review_result.json
+
+      - name: Create GitHub Issues for Editorial Improvements
+        if: ${{ inputs.auto_create_issues }} && always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const resultFile = 'full_book_review_result.json';
+            if (!fs.existsSync(resultFile)) {
+              console.log('No result JSON found.');
+              return;
+            }
+            const data = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
+            for (const [filePath, fileData] of Object.entries(data)) {
+              const fileName = filePath.split('/').pop().split('\\').pop();
+              const passed = fileData.passed;
+              const overallScore = fileData.overall_score;
+              const res = fileData.result;
+              const improvements = res.actionable_improvements || [];
+              const strengths = res.strengths || [];
+              const verdict = res.summary_verdict || '';
+
+              // 合否判定に関わらず改善指摘がある場合、または不合格（スコア不足）の場合にIssue化
+              if (!passed || (improvements.length > 0 && overallScore < 95)) {
+                const title = `editorial: 【編集者AIレビュー改善指摘】${fileName} (スコア: ${overallScore.toFixed(1)}点)`;
+                let body = `## 📚 ${fileName} 編集者レビュー改善指摘\n\n`;
+                body += `- **判定状況**: ${passed ? '✅ 基準充足' : '❌ 要改善 (DoD未達)'}\n`;
+                body += `- **総合スコア**: **${overallScore.toFixed(1)} / 100**\n\n`;
+                body += `### 🔧 改善ポイント (Actionable Improvements)\n`;
+                improvements.forEach(imp => { body += `- ${imp}\n`; });
+                body += `\n### 👥 読者ペルソナ視点\n`;
+                if (res.persona_reviews) {
+                  body += `- **テックリード**: ${res.persona_reviews.tech_lead || 'N/A'}\n`;
+                  body += `- **シニアQA**: ${res.persona_reviews.qa_engineer || 'N/A'}\n`;
+                  body += `- **ジュニア**: ${res.persona_reviews.junior_dev || 'N/A'}\n`;
+                }
+                body += `\n### ✍️ 編集長講評\n> ${verdict}\n\n`;
+                body += `---\n*本Issueは GitHub Actions (Full Book Editorial Review) により自動起票されました。*`;
+
+                console.log(`Creating issue for ${fileName}...`);
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: title,
+                  body: body,
+                  labels: ['editorial-review', 'quality-gate']
+                });
+              }
+            }
