@@ -80,7 +80,7 @@ PRがオープンされてからマージされるまでの総サイクルタイ
 
 特定のシニアエンジニアやテックリードにレビュー負荷が極端に偏る「レビュアー単一障害点（SPOF）」は、組織全体のベロシティ低下とバーンアウトの元凶である。
 
-GitHubのGraphQL APIを用いてPRレビュアーごとのアサイン数、承認数、レビューコメント数を抽出し、ジニ係数（不平等度指数）を算出する。ジニ係数が0.5を超える場合、知識のサイロ化とレビュー渋滞が発生していると判定する。
+GitHubのGraphQL APIを用いてPRレビュアーごとのアサイン数、承認数、レビューコメント数を抽出し、ジニ係数（不平等度指数）を算出する。ジニ係数が0.5を超える場合、知識のサイロ化とレビュー渋滞が発生していると判定する。なお、以下のスクリプトを実行する際は、環境変数 `GITHUB_TOKEN` に対象リポジトリのPR読み取り権限を持つトークンを設定しておく必要がある。具体的には、Fine-grained PATの場合は `Pull requests: Read-only`、Classic PATの場合は `repo` および `read:org` スコープを付与する。
 
 ```python
 # tools/analyze_review_bottlenecks.py
@@ -88,6 +88,15 @@ import os
 import json
 import urllib.request
 from collections import defaultdict
+
+def compute_gini_coefficient(values):
+    """レビュアーごとのレビュー件数リストからジニ係数（0.0=完全平等 〜 1.0=完全独占）を算出"""
+    n = len(values)
+    if n == 0 or sum(values) == 0:
+        return 0.0
+    sorted_vals = sorted(values)
+    cumulative_Diff = sum((2 * i - n - 1) * val for i, val in enumerate(sorted_vals, 1))
+    return cumulative_Diff / (n * sum(sorted_vals))
 
 def fetch_pull_requests(owner, repo, token):
     gql_query = """
@@ -132,6 +141,8 @@ def calculate_review_metrics(data):
     for reviewer, count in sorted(reviewer_counts.items(), key=lambda x: x[1], reverse=True):
         ratio = (count / total_reviews) * 100 if total_reviews > 0 else 0
         print(f"User: {reviewer:15} | レビュー参加数: {count:3} 件 ({ratio:5.1f}%)")
+    gini = compute_gini_coefficient(list(reviewer_counts.values()))
+    print(f"レビュアー偏り指数（ジニ係数）: {gini:.3f} (0.50超でSPOF警告)")
 ```
 
 ---

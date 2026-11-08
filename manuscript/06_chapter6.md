@@ -29,6 +29,17 @@ flowchart TD
 3. **Component（コンポーネント）**: コンテナ内部のモジュール責務と依存関係。
 4. **Code（コード）**: 主要なクラス構造やインターフェース設計。
 
+C4モデルの4階層は静的なお絵描きで終わらせず、以下のようにGitによるバージョン管理とCIパイプラインに直結させることで「Assurance-Driven Development（確証駆動開発）」の防護壁として機能します。
+
+```mermaid
+flowchart LR
+    C1["Level 1: Context<br>(docs/c4/context.mmd)"] -->|PR変更検知| CI1["STRIDE脅威境界監査<br>(外部通信先の変更検知)"]
+    C2["Level 2: Container<br>(docs/c4/container.mmd)"] -->|PR変更検知| CI2["OpenAPI / AsyncAPI<br>契約整合性テスト"]
+    C3["Level 3: Component<br>(docs/c4/component.mmd)"] -->|PR変更検知| CI3["ArchUnit / Deptry<br>レイヤー依存方向テスト"]
+    C4_L["Level 4: Code<br>(src/** / AST)"] -->|PR変更検知| CI4["静的型検査・DI単体テスト<br>(ミリ秒単位の実行)"]
+    CI1 -->CI2 --> CI3 --> CI4
+```
+
 ### 2. ADR（Architecture Decision Record：アーキテクチャ意思決定記録）
 
 「なぜそのデータベースを選んだのか」「なぜGraphQLではなくgRPCを採用したのか」といった重要な設計判断を、Gitリポジトリ内にMarkdownとして記録する成果物です。後から参画したエンジニアが「なぜこうなっているのか」を理解し、不毛な再議論を防ぐための必須ドキュメントです。
@@ -166,6 +177,10 @@ APIの変更によってクライアントアプリがクラッシュする「�
 ### SpectralによるOpenAPI静的監査
 
 OpenAPIの定義ファイル（`openapi.yaml`）に対し、リントツール **Spectral** をCIで実行し、API設計規約違反を強制ブロックします。
+
+### スピード重視の現場における「1行ADR」と軽量スキーマ運用ハック
+
+「アジャイルでスピード重視の現場では、重厚なADRやスキーマファーストを書いている暇がない」という反発がよく聞かれます。そのような現場では、最初から完璧なドキュメントを書く必要はありません。まずはPRの概要欄（または `docs/adr/LOG.md`）に **「【決定】○○を採用 / 【理由】××のため / 【捨てた選択肢】△△は運用コスト高のため却下」というMarkdown 1行（One-Line ADR）を書くだけ** で十分です。スキーマも最初から手書きせず、TypeScriptのZodやPythonのPydanticモデルからOpenAPIを自動生成してCIで差分比較する「コードファースト・スキーマロック」から始めることで、開発速度を1ミリも落とさずに後方互換性のガードレールを手に入れることができます。
 
 ```yaml
 # .spectral.yaml (API設計規約ルールセット)

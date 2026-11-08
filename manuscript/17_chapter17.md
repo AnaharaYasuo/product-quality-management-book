@@ -88,7 +88,7 @@ def validate_incoming_orders(df: pd.DataFrame):
     print("✅ 全てのデータ品質Expectationsをパスしました。")
 ```
 
-このバリデーションをAirflowやPrefect、GitHub Actionsのパイプラインに埋め込むことで、不正データのDWH（データレイク）への流入を境界で物理的に遮断する。
+このバリデーションをAirflowやPrefect、GitHub Actionsのパイプラインに埋め込むことで、不正データのDWH（データレイク）への流入を境界で物理的に遮断する。なお、Great Expectationsはバージョンアップが速く、旧来のV2 API（`Dataset` 継承方式）と最新のV3 / GX Core 1.0以降で記述が大きく異なる。上記のコードは最新のFluent Data Sources方式（`context.data_sources.add_pandas` 等）に準拠している。そのため、環境構築時は `requirements.txt` で `great_expectations>=1.0.0` のようにメジャーバージョンを厳密にピン留めすることが必須である。
 
 ---
 
@@ -177,6 +177,8 @@ def repair_broken_schema(target_schema, incoming_columns_sample):
         res = json.loads(resp.read().decode("utf-8"))
         return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
 ```
+
+ただし、本番パイプラインでLLMによるスキーマ自動修復を運用する際は、悪意ある外部入力データ（カラム名等に仕込まれたプロンプトインジェクション）や、ハルシネーションによる誤ったカラム結合（例：`user_id` と `order_id` の取り違え）に対する安全弁が不可欠である。したがって、LLMの出力はあらかじめ定義した許可リスト（ホワイトリスト化された型変換関数のみ）で厳格にバリデーションする。さらに、確信度（`confidence`）が閾値（0.95）未満の場合や金額・決済系の重要カラムが変化した場合は自動適用せず、退避テーブル（Dead Letter Table）へ生データを隔離した上でデータエンジニアへSlack通知するフォールバック処理を必ず組み込むこと。
 
 ---
 

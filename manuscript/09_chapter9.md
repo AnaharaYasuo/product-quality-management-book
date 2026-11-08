@@ -183,6 +183,22 @@ $$\text{Mutation Score} = \frac{\text{Killed Mutants}}{\text{Total Mutants}} \ti
 }
 ```
 
+Pythonプロジェクト（pytest環境）で同様にミューテーションテストを実施する場合は、`mutmut` を用いて `pyproject.toml`（または `setup.cfg`）に以下のように設定し、CI上で差分またはコアドメインの変異スコアを検証します。
+
+```toml
+# pyproject.toml (Python mutmutの設定例)
+[tool.mutmut]
+paths_to_mutate = "src/domain/"
+tests_dir = "tests/unit/"
+runner = "python -m pytest -x --assert=plain"
+```
+
+```bash
+# mutmutの実行と生存変異体（Survived Mutants）の確認コマンド
+mutmut run --paths-to-mutate=src/domain/order_service.py
+mutmut results  # 生き残った変異体IDの一覧を表示し、mutmut show <id> で差分を確認
+```
+
 ---
 
 ## 9.4 Flakyテスト（不安定なテスト）の静的検出と排除プロトコル
@@ -222,6 +238,8 @@ flowchart TD
     F -->|Yes| G["メインテストスイートへ復帰"]
     F -->|No| H["根本修正またはテスト削除"]
 ```
+
+この隔離プロトコルを人手で行うと形骸化するため、実務ではGitHub Actions上で `pytest --reruns 2 --junitxml=report.xml` 等を実行して自動化します。具体的には、「初回Fail・リトライ時Pass」となったテストケースを検出した瞬間に、自動で `@pytest.mark.quarantine` 対象リストへ追加します。さらに、修正用GitHub Issueを自動起票するワークフロー（章末の演習課題4参照）としてパイプラインに直結させます。
 
 ---
 

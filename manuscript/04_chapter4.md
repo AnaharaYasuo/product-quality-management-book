@@ -105,6 +105,21 @@ flowchart LR
     StyleDictionary --> TS["styles/tokens.ts<br>(TypeScript型定義)"]
 ```
 
+以下は、W3Cデザイントークン形式の `tokens.json` と、それを検証・変換する Style Dictionary の設定ファイル（`sd.config.json`）のスニペット例です。
+
+```json
+{
+  "color": {
+    "brand": { "primary": { "$value": "#2563EB", "$type": "color", "description": "主要CTAボタン背景色（白文字とのコントラスト比 5.17:1 >= 4.5:1）" } },
+    "semantic": { "error": { "$value": "#DC2626", "$type": "color" } }
+  },
+  "spacing": { "md": { "$value": "16px", "$type": "dimension" } },
+  "platforms": {
+    "css": { "transformGroup": "css", "buildPath": "dist/css/", "files": [{ "destination": "variables.css", "format": "css/variables" }] }
+  }
+}
+```
+
 ---
 
 ## 4.5 AI確証実践：マルチモーダルLLMによるデザイン画面の欠落状態自動検知とVisual AI Diff
@@ -142,6 +157,21 @@ flowchart LR
 1. 欠落している状態（Missing States）のリストと推奨されるデザイン仕様
 2. アクセシビリティ・視認性の潜在的違反箇所
 3. フロントエンドエンジニアが実装前にデザイナーへ確認すべき質問リスト（Q&A形式）
+```
+
+### マルチモーダルLLMによる監査出力例（モックアウトプット）
+
+上記のプロンプトに「ECサイトの注文履歴一覧画面」のカンプ画像を入力した際の実際の出力イメージは以下の通りです。
+
+```text
+【AIデザイン監査レポート：注文履歴一覧画面】
+1. 欠落している状態（Missing States）:
+   - [Empty State 欠落]: 注文履歴が0件の新規ユーザー向けの画面が未定義です。「まだ注文履歴がありません。おすすめ商品を見る」等のCTA配置を推奨します。
+   - [Overflow State 欠落]: 商品名が40文字を超えた場合の省略（line-clamp: 2等）が定義されておらず、金額表示カラムが画面外へ押し出されるリスクがあります。
+2. アクセシビリティ違反の疑い:
+   - 「キャンセル申請」リンクのサイズが 18x14px と推定され、WCAG 2.2 Target Size (24x24px以上) に違反しています。paddingの拡大が必要です。
+3. 実装前確認事項（Q&A）:
+   - Q: 配送ステータス取得APIがタイムアウトした際、一覧全体をエラーにするか、該当行のみ「取得失敗（再試行）」を表示するか？
 ```
 
 ---
