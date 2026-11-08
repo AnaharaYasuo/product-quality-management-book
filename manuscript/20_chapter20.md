@@ -111,7 +111,7 @@ Spotifyでは独立したQA部門を解体し、各フィーチャースクワ�
 
 全員品質を文化として定着させるための強力な触媒が、開発者自身がいつでも確認できる「品質可視化ダッシュボード」である。
 
-テストカバレッジの推移、CI成功率、flakyテスト発生件数、DORA指標（変更リードタイム・変更失敗率）をリアルタイムに可視化し、レトロスペクティブでチーム全員で振り返る。この際、最も留意すべきは「個人のコミット数やテスト作成数を比較しない」ことである。指標が個人の評価に結びついた瞬間、グッドハートの法則により「意味のない無価値なアサーション」が量産され、文化は崩壊する。メトリクスは常に「チームのプロセスを改善するための羅針盤」として運用されなければならない。
+テストカバレッジの推移、CI成功率、flakyテスト発生件数、DORA指標（変更リードタイム・変更失敗率）をリアルタイムに可視化し、レトロスペクティブでチーム全員で振り返る。具体的な可視化スタックとしては、CIのJUnit XMLやカバレッジ出力を **Datadog CI Visibility** や **Grafana（＋BigQuery）**、またはOSSの **Apache DevLake** や **Codecov** に連携する構成が代表的である。そこからSlackへ週次サマリを自動配信する仕組みを作ると、現場への定着が劇的に進む。この際、最も留意すべきは「個人のコミット数やテスト作成数を比較しない」ことである。指標が個人の評価に結びついた瞬間、グッドハートの法則により「意味のない無価値なアサーション」が量産され、文化は崩壊する。メトリクスは常に「チームのプロセスを改善するための羅針盤」として運用されなければならない。
 
 ---
 
@@ -147,9 +147,14 @@ def provide_quality_coaching(pr_title, pr_diff, domain_rules):
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req) as resp:
-        res = json.loads(resp.read().decode("utf-8"))
-        return res["candidates"][0]["content"]["parts"][0]["text"]
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            return res["candidates"][0]["content"]["parts"][0]["text"]
+    except (urllib.error.URLError, json.JSONDecodeError, KeyError, IndexError, TimeoutError) as e:
+        # APIタイムアウトやレスポンス形式異常時にCIジョブをクラッシュさせないための堅牢な例外ハンドリング
+        print(f"[WARN] AI Quality Coach API call skipped due to error: {e}")
+        return "AI Quality Coachは一時的にスキップされました。標準のテスト観点チェックリストを確認してください。"
 ```
 
 ---

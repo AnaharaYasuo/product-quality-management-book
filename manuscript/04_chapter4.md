@@ -44,6 +44,7 @@ flowchart LR
     DesignReview --> WCAG["① WCAG 2.2 アクセシビリティ<br>・コントラスト比 4.5:1<br>・フォーカス可視化<br>・ターゲットサイズ 24x24px"]
     DesignReview --> Nielsen["② ニールセンの10原則<br>・システム状態の視認性<br>・エラー防止と回復支援<br>・一貫性と標準"]
     DesignReview --> System["③ デザインシステム適合性<br>・トークン逸脱の排除<br>・コンポーネント再利用率<br>・Storybook整合性"]
+    DesignReview --> RACI["④ 3層RACIハンドオフ<br>・共通層: Design+FEリード<br>・画面固有層: PdM+Design<br>・境界/例外層: Eng+QA逆提案"]
 ```
 
 ### 1. WCAG 2.2（Web Content Accessibility Guidelines）適合性検証
@@ -124,6 +125,14 @@ flowchart LR
     "css": { "transformGroup": "css", "buildPath": "dist/css/", "files": [{ "destination": "variables.css", "format": "css/variables" }] }
   }
 }
+```
+
+```yaml
+# .github/workflows/design-tokens-ci.yml（Style Dictionaryビルドと手動編集ブロックのCI結合例）
+- name: Build and Verify Design Tokens
+  run: |
+    npx style-dictionary build --config sd.config.json
+    git diff --exit-code dist/css/variables.css
 ```
 
 ### Figma VariablesとStyle Dictionary連携におけるバージョニング・競合解決プラクティス
