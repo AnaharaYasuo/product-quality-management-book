@@ -57,17 +57,20 @@ flowchart TD
     L1 ==> L2 ==> L3 ==> L4
 ```
 
-### 各階層のアンカー特性
+### 各階層のアンカー
 
 1. **第1層：静的型システム・コンパイラ（Static Type Anchors）**:
-   - 型検査は解釈の余地がない数学的証明である。`mypy --strict` や `tsc --noEmit` が0を返さない限り、AIがどれほど流暢に言い訳を並べても1行たりとも前に進ませない。
-2. **第2層：契約と不変条件（Contractual Anchors）**:
-   - 関数の事前条件（Preconditions）、事後条件（Postconditions）、不変条件（Invariants）をコードで固定する。PydanticやZodを用いて、実行時に入出力の型と値の範囲を物理的に強制する。
+   - 型は解釈の余地のない数学的証明です。`mypy --strict` や `tsc --noEmit` が0を返さない限り、AIがどれほど流暢に弁明しても1ミリたりとも前に進まない。
+2. **第2層：契約と不変量（Contractual Anchors）**:
+   - 関数の事前条件（Preconditions）、事後条件（Postconditions）、不変量（Invariants）をコードで固定する。PydanticやZodを用いて、実行時に入出力の型と値の範囲を物理的に縛る。
+3. **第3層：隔離実行環境（Sandbox Runtime Anchors）**:
+   - モック（Mock）に頼らず、Testcontainers等で起動した実PostgreSQLやRedisと通信させ、決定論的な終了コード（Exit Code）で判定する。
+4. **第4層：実行時オブザーバビリティ（Runtime Telemetry Anchors）**:
+   - 本番トラフィックに対するSLI/SLO監視。AIの出力がどれほど魅力的であっても、レイテンシやエラー率が閾値を超えた瞬間に自動的に切り離す。
 
+### 実装例：Pydanticによる実行時契約アンカー
 
-### 実践例：Pydanticによる実行時契約アンカー
-
-AIエージェントが生成したデータ構造やAPIペイロードが、実行時に不変条件を満たしているかを保証するコード例である。
+AIエージェントが生成するデータ構造やAPIペイロードが、実行時に不変量を満たしているかを厳格に保証するコード例です。
 
 ```python
 # core/contract_anchors.py
@@ -85,15 +88,11 @@ class PaymentTransaction(BaseModel):
     def validate_supported_currency(cls, v: str) -> str:
         supported = {"USD", "JPY", "EUR", "GBP"}
         if v not in supported:
-            raise ValueError(f"未サポートの通貨コードです: {v}")
+            raise ValueError(f"サポート対象外の通貨コードです: {v}")
         return v
 ```
 
-AIがどのようなハルシネーションを起こして無効な通貨やマイナスの金額を出力しようとも、この契約アンカーが実行時例外（ValidationError）を発生させ、即座にトランザクションを拒絶する。
-3. **第3層：隔離実行環境（Sandbox Runtime Anchors）**:
-   - モック（Mock）に頼らず、Testcontainersで起動した本物のPostgreSQLやRedisと通信させ、物理的な終了コード（Exit Code）で判定する。
-4. **第4層：実行時オブザーバビリティ（Runtime Telemetry Anchors）**:
-   - 本番トラフィックに対するSLI/SLO監視。AIの出力がどれほど魅力的であっても、レイテンシやエラー率が閾値を超えた瞬間に物理的に切り戻す。
+AIがどのようなハルシネーションを起こして未知の通貨やマイナスの金額を出力しようとしても、この契約アンカーが実行時例外（ValidationError）を発生させ、即座にトランザクションを遮断します。
 
 ---
 
@@ -141,7 +140,6 @@ flowchart LR
 1. **価値と目的の決定（Why & What）**: 「何を解くべき問題とし、何を目指すのか」というビジネス価値とユーザー体験のゴール設計。
 2. **倫理・法・アカウンタビリティ（Ethics & Law）**: 著作権侵害、プライバシー保護、生命・財産に関わる安全性に対する最終的な法的責任の引き受け。
 3. **アンカーの健全性監査（Meta-Assurance）**: 決定論的アンカー自体が正しく機能しているか、変異テストの閾値やCIの設定が劣化していないかのメタ監査。
-
 
 ### 「アンカー設計者」としての新しいエンジニア像
 
