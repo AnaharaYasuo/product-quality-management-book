@@ -121,35 +121,33 @@ EDITORIAL_PROMPT_TEMPLATE = """
 """
 
 def evaluate_with_llm(filename: str, content: str, api_key: str) -> Dict[str, Any]:
-    """Gemini APIを呼び出して評価を行う"""
-    try:
-        from google import genai
-        from google.genai import types
-    except ImportError:
-        # pip install google-genai または google-generativeai のフォールバック
-        pass
-
+    """Gemini APIを呼び出して評価を行う (gemini-3.5-flash-lite / gemini-3.1-flash-lite)"""
     prompt = EDITORIAL_PROMPT_TEMPLATE.format(filename=filename, content=content)
 
-    # 1. 新しい google-genai SDKを試行
+    # 優先モデルの探索順: 環境変数指定 -> gemini-3.5-flash-lite -> gemini-3.1-flash-lite
+    env_model = os.environ.get("EDITORIAL_REVIEW_MODEL")
+    candidate_models = [env_model] if env_model else ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
+
+    response_text = ""
     try:
         import google.genai as genai_module
         client = genai_module.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
-        response_text = response.text
-    except Exception as e1:
-        # 2. 従来の google-generativeai SDKを試行
-        try:
-            import google.generativeai as legacy_genai
-            legacy_genai.configure(api_key=api_key)
-            model = legacy_genai.GenerativeModel('gemini-1.5-flash')
-            response = model.generate_content(prompt)
-            response_text = response.text
-        except Exception as e2:
-            raise RuntimeError(f"LLM API呼び出しに失敗しました: {e1} / {e2}")
+        for model_name in candidate_models:
+            try:
+                print(f"[INFO] Gemini API 呼び出し中 (model: {model_name}) ...")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                response_text = response.text
+                if response_text:
+                    break
+            except Exception as e:
+                print(f"[WARN] model '{model_name}' での呼び出しに失敗しました: {e}", file=sys.stderr)
+        else:
+            raise RuntimeError("すべての候補モデルでの生成に失敗しました。")
+    except Exception as e_genai:
+        raise RuntimeError(f"LLM API呼び出しに失敗しました: {e_genai}")
 
     # JSON抽出
     text = response_text.strip()
