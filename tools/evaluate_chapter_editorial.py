@@ -9,6 +9,7 @@ Issue #50: 商業出版・編集者レビュー観点の整理・拡充および
 import os
 import sys
 import json
+import time
 import argparse
 import subprocess
 from pathlib import Path
@@ -133,17 +134,29 @@ def evaluate_with_llm(filename: str, content: str, api_key: str) -> Dict[str, An
         import google.genai as genai_module
         client = genai_module.Client(api_key=api_key)
         for model_name in candidate_models:
-            try:
-                print(f"[INFO] Gemini API 呼び出し中 (model: {model_name}) ...")
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
-                response_text = response.text
-                if response_text:
-                    break
-            except Exception as e:
-                print(f"[WARN] model '{model_name}' での呼び出しに失敗しました: {e}", file=sys.stderr)
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    print(f"[INFO] Gemini API 呼び出し中 (model: {model_name}, 試行 {attempt + 1}/{max_retries}) ...")
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                    )
+                    response_text = response.text
+                    if response_text:
+                        break
+                except Exception as e:
+                    err_msg = str(e)
+                    is_rate_limit = "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg
+                    if is_rate_limit and attempt < max_retries - 1:
+                        wait_seconds = 15 * (attempt + 1)
+                        print(f"[WARN] レートリミット (429) を検知しました。{wait_seconds}秒待機して再試行します...", file=sys.stderr)
+                        time.sleep(wait_seconds)
+                    else:
+                        print(f"[WARN] model '{model_name}' での呼び出しに失敗しました: {e}", file=sys.stderr)
+                        break
+            if response_text:
+                break
         else:
             raise RuntimeError("すべての候補モデルでの生成に失敗しました。")
     except Exception as e_genai:
@@ -341,9 +354,12 @@ def main():
 
     print(f"=== 商業出版・編集者レビュー品質ゲート評価開始 ({len(target_files)} ファイル) ===")
 
-    for target_path in target_files:
+    for idx, target_path in enumerate(target_files):
         if not target_path.exists():
             continue
+        if idx > 0 and api_key:
+            # 無料枠の 15 RPM 制限対策として章間に適切なインターバルを設ける
+            time.sleep(3)
         print(f"\n[INFO] 審査中: {target_path} ...")
         result = evaluate_file(target_path, api_key)
         scores = result.get("scores", {})
