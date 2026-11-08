@@ -1,6 +1,13 @@
 name: Editorial Review & Human Experience Quality Gate
 
 on:
+  workflow_dispatch:
+    inputs:
+      review_all:
+        description: '全章レビューを実行するか (true: 全章, false: 差分のみ)'
+        required: false
+        default: 'false'
+        type: boolean
   push:
     branches: [main]
   pull_request:
@@ -38,7 +45,11 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          python tools/evaluate_chapter_editorial.py --report-out editorial_review_report.md --json-out editorial_review_result.json
+          if [ "${{ inputs.review_all }}" = "true" ]; then
+            python tools/evaluate_chapter_editorial.py --all --report-out editorial_review_report.md --json-out editorial_review_result.json
+          else
+            python tools/evaluate_chapter_editorial.py --report-out editorial_review_report.md --json-out editorial_review_result.json
+          fi
 
       - name: Comment PR with Review Report
         if: github.event_name == 'pull_request' && always()
