@@ -213,6 +213,27 @@ for (const file of manuscriptFiles) {
 }
 ```
 
+上記の `dangerfile.js` をGitHub Actions上で自動実行し、PRへ検証結果コメントを投稿するためのセットアップ手順は以下の通りである。
+
+```yaml
+# .github/workflows/danger-pr-guard.yml
+name: Danger PR Guardrail
+on: [pull_request]
+jobs:
+  danger:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --no-save danger
+      - name: Run Danger JS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx danger ci --failOnErrors=true
+```
+
 ---
 
 ## 12.5 AI確証工程：PR変更内容とDoDチェックボックスの乖離検知
@@ -303,11 +324,20 @@ def audit_consistency(pr_body, git_diff):
     url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}'
     req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'})
     
-    with urllib.request.urlopen(req) as resp:
-        res_data = json.loads(resp.read().decode('utf-8'))
-        text_response = res_data['candidates'][0]['content']['parts'][0]['text']
-        audit_result = json.loads(text_response)
-        return audit_result['verdict'] == 'PASS', audit_result
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            res_data = json.loads(resp.read().decode('utf-8'))
+            text_response = res_data['candidates'][0]['content']['parts'][0]['text']
+            audit_result = json.loads(text_response)
+            return audit_result['verdict'] == 'PASS', audit_result
+    except (urllib.error.URLError, json.JSONDecodeError, KeyError, TimeoutError) as e:
+        # LLM APIのレートリミットや一時障害時にCI全体を止めないための決定論的フォールバック
+        print(f'[WARN] AI API call failed ({e}). Running deterministic fallback check...')
+        has_test_diff = any('test' in line.lower() for line in git_diff.splitlines())
+        claims_test = '[x] 単体テスト' in pr_body or '[x] テスト' in pr_body
+        if claims_test and not has_test_diff:
+            return False, {'verdict': 'FAIL', 'reasons': ['テスト実施にチェックがありますがテスト差分がありません（Fallback検知）']}
+        return True, {'verdict': 'PASS', 'reasons': ['Fallback check passed']}
 
 if __name__ == '__main__':
     pr_body = os.environ.get('PR_BODY', '')

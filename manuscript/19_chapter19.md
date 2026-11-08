@@ -130,6 +130,13 @@ if __name__ == "__main__":
     check_test_tampering()
 ```
 
+### 仕様変更に伴う「正当な既存テスト修正」の例外エスカレーションプロトコル
+
+ここで実運用上の重要なジレンマが生じる。「ビジネス仕様の変更に伴って、既存のテストコードの期待値を正当に修正しなければならないケース」である。既存テストの変更（`M` ステータス）を完全に一律禁止したままでは、仕様変更タスクまでロックされてしまう。このジレンマは以下の**「二段階コミット分離（Two-Phase Spec Update）プロトコル」**によって解決する。
+
+1. **人間（またはSpec Agent）による先行テスト更新フェーズ**: 仕様変更を伴うタスクでは、実装エージェント（Coder Agent）が動く前に、人間エンジニアが先に既存テストの期待値を新仕様へ書き換える。その上で、人間がレビュー承認してブランチへロック（Red状態のテストを確定）させる。
+2. **ラベル付きエスカレーション（Human-in-the-Loop）**: もし実装エージェントの実行中に既存テストの修正が不可避であると判明した場合、エージェントはテストを勝手に書き換えるのではなく、「テスト修正案と仕様変更根拠」をPRコメントに出力して一時停止（Escalation）する。人間レビュアーが妥当性を確認し、PRに `allow-test-modification` ラベルを付与したときのみ、`verify_agent_test_integrity.py` の変更ブロックをバイパス許可する設計とすることで、報酬ハッキングの防止と仕様変更の柔軟性を完全に両立できる。
+
 ---
 
 ## 19.4 サンドボックス実行環境とセキュリティ境界
@@ -179,10 +186,10 @@ import os
 import json
 import urllib.request
 
-def audit_agent_pr(task_spec, git_diff):
+def audit_agent_pr(task_spec: str, git_diff: str) -> dict:
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        return "Audit Skipped."
+        return {"verdict": "APPROVE", "reasons": ["API Key not set (Fallback Pass)"]}
 
     prompt = (
         "あなたは極めて猜疑心の強い敵対的ソフトウェア監査官（Auditor Agent）です。\n"
@@ -191,11 +198,21 @@ def audit_agent_pr(task_spec, git_diff):
         "1. 仕様書の制約（Invariants）を破っていないか（不要なライブラリ追加、無関係なリファクタリングなど）\n"
         "2. テストの合否基準を誤魔化していないか（例外をもみ消す try-except、アサーションの削除）\n"
         "3. エッジケースの処理を省略してハッピーパスだけで誤魔化していないか\n\n"
-        "【判定】\n"
-        "重大な懸念がある場合は VERDICT: REJECT、問題が一切ない場合のみ VERDICT: APPROVE としてください。"
+        f"【タスク仕様】:\n{task_spec}\n\n【Git差分】:\n{git_diff}\n\n"
+        '回答はJSON形式で {"verdict": "APPROVE" | "REJECT", "reasons": ["理由1"]} としてください。'
     )
-    return "VERDICT: APPROVE"
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {"response_mime_type": "application/json"}
+    }
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        res = json.loads(resp.read().decode("utf-8"))
+        return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
 ```
+
+なお、マルチエージェント監査を実運用する際は、LLMのAPIコストとレイテンシを抑える工夫が欠かせない。具体的には、決定論的CI（コンパイル・単体テスト・Linter・`verify_agent_test_integrity.py`）がすべてGreenになった後にのみ、非同期ジョブとしてAuditor Agentを起動する（Short-Circuit Evaluation）構成とする。構文エラーやテスト失敗がある未完成の差分に対して高価なLLM監査を走らせないことで、APIコストを80%以上削減しつつ、人間レビュアーがPRを開く頃には非同期でAI監査レポートが揃っている快適なUXを実現できる。
 
 ---
 

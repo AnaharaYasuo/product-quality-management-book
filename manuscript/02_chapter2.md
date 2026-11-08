@@ -143,6 +143,34 @@ classDiagram
 
 プロセス成果物が曖昧な現場では、「レビューは誰がいつやるのか」「テストをどこまで書けばマージして良いのか」が個人の良心や空気に依存します。結果として、締切間際にルールが骨抜きにされ、低品質なコードが本番へ垂れ流されます。**プロセスをコードと同様に「仕様化」し、「静的検証（Lint/Guardrail）」し、「動的検証（メトリクス）」する**ことこそが、現代のエンジニアリング組織に求められる規律です。
 
+### プロセス成果物のコード化・自動執行スニペット
+
+明日から現場のリポジトリでプロセス成果物を機械的に強制するための、`DEVELOPMENT_RULES.md` と GitHub Ruleset（JSON設定）の最小構成例を示します。
+
+```markdown
+<!-- DEVELOPMENT_RULES.md : プロセス成果物の明文化 -->
+## 1. プルリクエスト・マージ規律（DoD）
+- すべてのPRは対応するIssue番号（`Closes #123`）を本文に含めること。
+- 変更行数が300行を超える場合は分割すること（自動生成ファイル除く）。
+- CIの静的解析・単体テストおよび仕様整合性チェックがすべてGreenであること。
+```
+
+```json
+{
+  "name": "main-branch-assurance-ruleset",
+  "target": "branch",
+  "enforcement": "active",
+  "rules": [
+    { "type": "pull_request", "parameters": { "required_approving_review_count": 1, "dismiss_stale_reviews_on_push": true } },
+    { "type": "required_status_checks", "parameters": { "strict_required_status_checks_policy": true, "required_status_checks": [{ "context": "assurance-gate" }] } }
+  ]
+}
+```
+
+### 既存スクラムイベントへの検証ステップの埋め込み（対ゾンビ・アジャイル処方箋）
+
+アジャイルやスクラムを導入しているものの、セレモニーが形骸化している現場（いわゆるゾンビ・アジャイル）では、新しい会議体を増やすのではなく、**既存のスプリントイベントの中に成果物検証を寄生（埋め込み）させる**のが鉄則です。バックログリファインメントの場では「ストーリーのポイント見積もり」に入る前の最初の10分間でPRDと受入基準のVerification（境界値・異常系の有無の確認）を強制します。また、スプリントレトロスペクティブ（ふりかえり）では感想戦を廃止し、「DORAメトリクスとプロセス成果物（DoD逸脱件数）の監査」をアジェンダの第1項目に固定することで、摩擦なく真のシフトレフトを定着させることができます。
+
 ---
 
 ## 2.4 Verification（正しく作っているか）とValidation（正しいものを作っているか）の二重ループ

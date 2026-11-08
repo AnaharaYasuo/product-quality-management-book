@@ -177,6 +177,8 @@ if (hasAppChanges && !hasTestChanges) {
 }
 ```
 
+なお、大規模プロジェクトやモノレポ（Monorepo）環境にDangerやSemgrepをスケールさせる際は、リポジトリ全体を一律スキャンするとCI時間が肥大化してしまいます。そのため、`danger.git.modified_files` や `semgrep ci --baseline-commit origin/main` を用います。「変更されたパッケージ（Workspace）および差分ファイルのみ」をターゲットに絞る差分実行（Differential Scan）を構成するのが鉄則です。自動生成コード（OpenAPI生成クライアントやマイグレーションファイル等）は計算対象から除外することで、大規模開発でもノイズゼロの高速フィードバックを維持できます。
+
 ### 2. 人間が注力すべき3大レビュー観点
 
 スタイルや構文の指摘を自動ツールに委ねた人間レビュアーは、以下の3点に集中します。
@@ -314,6 +316,19 @@ GitHub CopilotやChatGPT、Claude等のLLMによるコード生成が一般化�
     ]
   }
 }
+```
+
+このJSON出力をGitHub Actions上でパースし、`jq` と `reviewdog`（または `gh pr comment`）へパイプ連携することで、PRの該当コード行へ直接インラインコメントを自動投稿できます。
+
+```yaml
+# AI監査JSON出力をReviewdog形式でPRにインライン投稿する連携スニペット
+- name: Run AI Audit and Post Inline Comments
+  env:
+    REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  run: |
+    python3 tools/run_ai_code_audit.py --diff origin/main...HEAD > ai_findings.json
+    jq -r '.findings[] | "\(.file):\(.line):1: [\(.rule_id)] \(.reason)"' ai_findings.json | \
+      reviewdog -efm="%f:%l:%c: %m" -name="ai-assurance-auditor" -reporter=github-pr-review -fail-on-error=true
 ```
 
 ### 3. 実践：Pythonによる新規依存パッケージ自動検証スクリプト

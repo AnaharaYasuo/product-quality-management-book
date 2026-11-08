@@ -87,6 +87,10 @@ $$ \text{Risk Score} = \text{Severity（影響度: 1〜5）} \times \text{Likeli
 - **Tier 2（中リスク: スコア8〜14）**: 主要ロジックの単体テスト必須、API結合テスト、変更時リグレッション確認。
 - **Tier 3（低リスク: スコア7以下）**: 基本的なSmoke Test（画面表示確認）のみ。単体テストは任意とし、不具合発生時に事後テスト追加。
 
+### 小規模チーム・スタートアップが今日から導入する「ライト版（2区分）」の第一歩
+
+5×5の厳密なリスクマトリクスを作る時間がない小規模チームやシード期のスタートアップでは、最初から3段階のスコアリングを行う必要はない。まずはホワイトボードに**「もしここが壊れたら会社が潰れる・警察や金融庁に怒られる・顧客のお金が消える機能（Tier 1：決済・認証・課金・PII）」を3つだけ書き出し、それ以外の全機能を「Tier 2/3（迅速に直せば許容される領域）」とみなす「二極化ライト版」**からスタートしてほしい。このわずか15分の仕分けだけで、「管理画面のCSS崩れチェックに追われて、決済の二重課金テストが漏れる」という最悪の悲劇を今日から即座に防ぐことができる。
+
 ---
 
 ## 22.4 即死領域 vs 低リスク領域の実践的グラデーション設計
@@ -142,29 +146,63 @@ MetaやGoogleが実践しているのが、Gitの変更差分（ASTトポロジ�
 ```python
 # tools/predictive_test_selection.py
 import os
+import sys
 import subprocess
 import json
 import urllib.request
+from pathlib import Path
 
-def select_optimal_tests(changed_files):
+def get_changed_files(base_ref: str = "origin/main") -> list[str]:
+    res = subprocess.run(["git", "diff", "--name-only", f"{base_ref}...HEAD"], capture_output=True, text=True, check=False)
+    return [line.strip() for line in res.stdout.splitlines() if line.strip()]
+
+def select_optimal_tests(changed_files: list[str]) -> list[str]:
+    if not changed_files:
+        return []
+
+    # 1. 決定論的マッピング（変更されたモジュール名に対応するテストファイルを高速特定）
+    selected = set()
+    for f in changed_files:
+        p = Path(f)
+        if p.parts and p.parts[0] == "tests" and p.suffix == ".py":
+            selected.add(f)
+        elif p.suffix == ".py":
+            candidate = Path("tests/unit") / f"test_{p.name}"
+            if candidate.exists():
+                selected.add(str(candidate))
+
+    # 2. LLMによるセマンティック依存推論（APIキー設定時）
     api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        # フォールバック: 関連テストの全件実行
-        return ["tests/"]
+    if api_key:
+        all_tests = [str(p) for p in Path("tests").rglob("test_*.py")]
+        prompt = (
+            "あなたはCIテスト最適化エンジンです。\n"
+            "以下のGit変更ファイル一覧と全テストファイル一覧から、影響を受ける可能性が高いテストファイルのみを選別してください。\n\n"
+            f"変更ファイル: {json.dumps(changed_files)}\n"
+            f"全テスト候補: {json.dumps(all_tests)}\n\n"
+            '回答はJSON配列形式 ["tests/unit/test_auth.py", ...] のみを出力してください。'
+        )
+        payload = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"response_mime_type": "application/json"}
+        }
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                res_data = json.loads(resp.read().decode("utf-8"))
+                ai_picks = json.loads(res_data["candidates"][0]["content"]["parts"][0]["text"])
+                selected.update(t for t in ai_picks if Path(t).exists())
+        except Exception as e:
+            print(f"[WARN] AI test selection fallback ({e})", file=sys.stderr)
 
-    prompt = (
-        "あなたはCIテスト最適化エンジンです。\n"
-        "以下のGit変更ファイル一覧に基づき、影響を受ける可能性が極めて高いテストファイルのみを優先選別してください。\n"
-        "無関係なコンポーネントのテストは意図的に除外し、CI時間を80%削減することを目標とします。\n\n"
-        f"変更ファイル一覧:\n{json.dumps(changed_files, indent=2)}\n\n"
-        "回答はJSON配列形式 ["tests/unit/test_auth.py", ...] のみを出力してください。"
-    )
-    # 予測されたテストケースのみを pytest に引数として渡す
-    return ["tests/unit/test_payment.py"]
+    return sorted(selected) if selected else ["tests/unit"]
 
 if __name__ == "__main__":
-    # 変更差分を取得して選別
-    pass
+    changed = get_changed_files()
+    target_tests = select_optimal_tests(changed)
+    print(f"🎯 選別された実行対象テスト: {target_tests}")
+    sys.exit(subprocess.call(["pytest", *target_tests]))
 ```
 
 ---

@@ -112,6 +112,12 @@ flowchart TD
 
 どれか1つの軸を無理に伸ばそうとすると、他の2つの軸に必ず歪みが生じる。例えば、スピードを焦って品質を犠牲にすれば「品質軸」が赤くなり、逆に官僚的な承認フローを増やして品質を守ろうとすれば「DevEx軸」と「スピード軸」が崩壊する。この3軸の健全な均衡を保ち続けることこそが、エンジニアリングマネージャーとテックリードの真の責務である。
 
+### マネジメント層や既存QA部門へ「ペアメトリクスとPaved Path」を提案・交渉する移行パス
+
+現場のエンジニアが「カバレッジ80%の単一ノルマをやめてペアメトリクスにしましょう」と正面から経営層やQA部門に具申しても、「テストを手抜きする気か」と誤解されて却下されることがある。組織政治の壁を突破するための最も効果的な交渉戦術は、**「既存のノルマ指標を否定せず、『経営陣が最も恐れる本番障害リスクの早期検知指標』として相殺指標を横に並べる（併記する）こと」**である。
+
+具体的には、月次報告レポートにおいて「行カバレッジ85%達成」のすぐ隣に「ただし重要決済モジュールの変異スコアは42%であり、テストのすり抜けリスクが残存」「レビュー待機による変更リードタイムの悪化が週18時間発生」というペアデータを添えて提出する。その上で、「承認印の手動チェックをGitHub ActionsのPaved Path（自動ゲート）に置き換えれば、監査証跡を100%残しつつリリース速度を2倍にできます」と提案する。このように「統制の強化（ガバナンス）」と「速度向上（ビジネス利益）」の双方を満たす形にパッケージングすることで、管理部門の合意をスムーズに勝ち取ることができる。
+
 ---
 
 ## 23.4 AI確証実践：形骸化したテストとハックを暴く「健全性アナライザー」
@@ -167,6 +173,25 @@ def main():
             print(f"  {f}: {tests}")
         sys.exit(1)
     print("✅ 全てのテスト関数に有効なアサーションが存在します。")
+
+def audit_semantic_mock_abuse_with_llm(test_code: str, api_key: str) -> dict:
+    """ASTでは見抜けない『assert True』や『モック自身が返した固定値をそのままassertするだけの意味のないテスト』をLLMでセマンティック摘発"""
+    import json, urllib.request
+    prompt = (
+        "以下のテストコードを精査し、グッドハートの法則による『形骸化ハック』がないかJSONで判定してください。\n"
+        "- 摘発対象1: テスト対象関数自体をモック化し、モックの戻り値をそのまま assert しているトートロジー（同語反復）\n"
+        "- 摘発対象2: assert result is not None や assert True のみで業務ロジックの正しさを一切検証していない偽装\n\n"
+        f"```python\n{test_code}\n```\n"
+        '出力形式: {"is_hollow_hack": true/false, "reason": "理由"}'
+    )
+    req = urllib.request.Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}",
+        data=json.dumps({"contents": [{"role": "user", "parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}).encode("utf-8"),
+        headers={"Content-Type": "application/json"}
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        res = json.loads(resp.read().decode("utf-8"))
+        return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
 
 if __name__ == "__main__":
     main()
