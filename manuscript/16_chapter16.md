@@ -99,7 +99,7 @@ sequenceDiagram
     K8s->>Rekor: 真正性 & 署名改ざん検証
     Rekor-->>K8s: 検証成功 (SLSA Level 3合致)
     K8s->>K8s: ポッド起動許可
-`
+```
 
 ### SLSA Level 3達成のためのCosign署名
 
@@ -139,6 +139,14 @@ repos:
         language: system
         stages: [commit]
 ```
+
+### ツール群の段階的導入コストと「誤検知（False Positive）の嵐」を抑えるチューニング知見
+
+Syft、Grype、Cosign、TruffleHogという4大ツールを初めて現場に導入する際、全ツールを初日からブロッキング設定で一斉投入すると「誤検知（False Positive）と修正不能な古い脆弱性アラートの嵐」によって開発が完全停止し、現場の強い反発を招く。挫折を防ぐための現実的なチューニングの鉄則は以下の3点である。
+
+1. **TruffleHogは必ず `--only-verified` から開始する**: 単なる高エントロピー文字列（UUIDやテスト用ハッシュ）まで遮断すると開発者が疲弊するため、まずはプロバイダAPIで「実際に有効な鍵」と確証されたものだけをブロックする。
+2. **Grypeの `--only-fixed` オプションと `.grype.yaml` 除外の活用**: OSベースイメージに含まれる「修正パッチがまだ存在しない脆弱性（Won't Fix）」でCIを止めないよう、`--only-fixed`（修正済みが存在する脆弱性のみ遮断）を指定する。また、到達不能な脆弱性は有効期限付きで `.grype.yaml` の `ignore` リストに登録する。
+3. **段階的ロールアウト（TruffleHog ➔ Syft/Grype ➔ Cosign）**: まずは導入コストがほぼゼロのTruffleHog（Week 1）から開始する。次にSBOM可視化とGrype監査（Week 2）を導入し、最後にKubernetes環境側の整備を伴うCosign署名検証（Month 2）へと段階的に引き上げることで、最小の摩擦でSLSA Level 3へ到達できる。
 
 ---
 

@@ -143,6 +143,18 @@ flowchart TD
 3. **AI生成コードにおける「テストの骨抜き」**:
    自律型AIエージェントに「テストをパスするように実装せよ」と命じたとき、エージェントが「アサーション（検証式）を弱める」「例外を握りつぶして合格させる」というハックを行うリスクが報告されています。単に「テストがGreenであること」だけでは、システムの正しさを確証できなくなっているのです。
 
+```python
+# アンチパターン：AIエージェントによる「テストの骨抜き（報酬ハッキング）」の具体例
+def test_process_payment_autonomous_hacked():
+    try:
+        result = process_payment(amount=-500)
+        # 本来は ValueError を検証すべきなのに、AIがテストを通すためにアサーションを偽装
+        assert result is not None or True
+    except Exception:
+        # 例外を握りつぶして強制的に Green（合格）にする悪質なハック
+        assert True
+```
+
 ### 確証（Assurance）への進化
 
 これに対し、確証（Assurance）とは、**「システムおよび開発プロセスが、要求された品質特性を満たし、受け入れがたいリスクを持たず、意図通りに価値を提供し続けることを、論理的・構造的・客観的証跡（Evidence）をもって保証・説明可能な状態にすること」** を指します。
@@ -307,6 +319,29 @@ AI導入初期の開発組織が陥りがちな典型的なアンチパターン
   2. 人間によるレビューにおいて、ドメインロジックの整合性とアーキテクチャ適合性がチェックされていること。
 - [ ] **不合格（Fail / Block）**:
   - テストコードを追加せずに実装コード行数のみが大幅増加（+200行以上）しているPRは、マージを自動ブロックする。
+
+以下は、上記の合否判定基準をGitHub ActionsのCIゲートとして機械的に強制する設定例です。
+
+```yaml
+# .github/workflows/assurance-gate.yml
+name: Assurance Quality Gate
+on: [pull_request]
+jobs:
+  verify-assurance-criteria:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Block Large PR Without Tests (+200 LOC Rule)
+        run: |
+          ADDED_SRC=$(git diff --numstat origin/main...HEAD -- 'src/**' | awk '{s+=$1} END {print s+0}')
+          ADDED_TEST=$(git diff --numstat origin/main...HEAD -- 'tests/**' | awk '{s+=$1} END {print s+0}')
+          if [ "$ADDED_SRC" -ge 200 ] && [ "$ADDED_TEST" -eq 0 ]; then
+            echo "❌ Fail: 実装が200行以上追加されていますが、テストコードの追加がありません。"
+            exit 1
+          fi
+```
 
 ---
 

@@ -144,7 +144,7 @@ $$ \text{年間削減コスト} = N_{\text{bug}} \times (T_{\text{prod}} - T_{\t
 
 例えば、年間20件のインシデントのうち半分の10件をCIとレビューで事前に抑止できた場合：
 $$ 10 \times (40 - 2) \times 8,000 = 3,040,000 \text{円} $$
-エンジニアの純粋な工数削減だけで300万円以上、事業停止損失を含めれば数千万円規模の経済的リターンが即座に証明できる。
+エンジニアの純粋な工数削減だけで300万円以上、事業停止損失を含めれば数千万円規模の経済的リターンが即座に証明できる。なお、技術的負債が極度に蓄積した巨大モノリス環境では、コードの密結合により1箇所の修正が予期せぬ箇所の破壊を招くため、本番障害時の修正コスト（$T_{\text{prod}}$）は300倍以上に膨れ上がる。一方で、初期のモック剥がしやテスト環境整備には一時的な先行投資（イニシャルコスト）が発生するため、その点も織り込んで段階的ROIを提示すると経営陣に対してより誠実な説得となる。
 
 ---
 
@@ -181,9 +181,13 @@ def generate_roadmap(team_context, current_challenges):
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req) as resp:
-        res = json.loads(resp.read().decode("utf-8"))
-        return res["candidates"][0]["content"]["parts"][0]["text"]
+    try:
+        # LLM APIのタイムアウトやレートリミット（HTTP 429）発生時にハングアップしないようタイムアウトと例外捕捉を設定
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            return res["candidates"][0]["content"]["parts"][0]["text"]
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, KeyError) as e:
+        return f"[WARN] AI API呼び出しエラー（レートリミットまたはタイムアウト: {e}）。標準テンプレートからMonth 1（PRテンプレート・Linter導入）を開始してください。"
 ```
 
 ---
