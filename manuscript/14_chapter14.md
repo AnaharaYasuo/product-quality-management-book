@@ -85,9 +85,26 @@ Stripe決済やSendGridメール送信などのサードパーティSaaSは、�
 
 TestcontainersやWireMockコンテナは決定論的な隔離環境を実現する一方で、数百本のテストファイルごとに毎回コンテナのイメージプルと起動・破棄を繰り返すと、CIの実行時間が数分〜十数分へと肥大化する。大規模開発でこのオーバーヘッドを極小化するための鉄則は以下の3点である。
 
-1. **セッションスコープ共有と高速トランケート**: 上記コード例のように、コンテナの起動自体は `scope="session"` でテスト実行全体につき1回のみとします。各テスト関数（`scope="function"`）の終了時にはコンテナを再起動せず、`TRUNCATE TABLE ... RESTART IDENTITY CASCADE` やトランザクションロールバックで数ミリ秒のうちにDB状態だけを初期化します。
+1. **セッションスコープ共有と高速トランケート**: 上記コード例のように、コンテナの起動自体は `scope="session"` でテスト実行全体につき1回のみとする。各テスト関数（`scope="function"`）の終了時にはコンテナを再起動せず、`TRUNCATE TABLE ... RESTART IDENTITY CASCADE` やトランザクションロールバックで数ミリ秒のうちにDB状態だけを初期化する。
 2. **Testcontainers再利用モード（Reusable Containers）**: ローカル開発時や同一CIランナー内では、コンテナの再利用機能を活用する。環境変数 `TESTCONTAINERS_RYUK_DISABLED=true` や `.testcontainers.properties` の `testcontainers.reuse.enable=true` を設定し、起動済みコンテナへ再接続する。
-3. **CIレイヤーでのDockerイメージ事前キャッシュ**: GitHub Actions等のエフェメラル環境では、毎回Docker Hubから数百MBのDBイメージを取得する通信時間がボトルネックとなります。そのため、GitHub Container Registry（GHCR）ミラーや `actions/cache`（または `services:` コンテナ機能）を併用し、イメージプル時間をゼロに近づけます。
+3. **CIレイヤーでのDockerイメージ事前キャッシュ**: GitHub Actions等のエフェメラル環境では、毎回Docker Hubから数百MBのDBイメージを取得する通信時間がボトルネックとなる。そのため、GitHub Container Registry（GHCR）ミラーや `actions/cache`（または `services:` コンテナ機能）を併用し、イメージプル時間をゼロに近づける。
+
+```yaml
+# .github/workflows/integration-test-cache.yml（Testcontainers用DockerイメージキャッシュのCI構成例）
+- name: Cache Docker images for Testcontainers
+  uses: actions/cache@v4
+  with:
+    path: /tmp/docker-cache
+    key: docker-pg16-${{ runner.os }}
+- name: Load or Pull PostgreSQL Image
+  run: |
+    if [ -f /tmp/docker-cache/pg16.tar ]; then
+      docker load -i /tmp/docker-cache/pg16.tar
+    else
+      mkdir -p /tmp/docker-cache && docker pull postgres:16-alpine
+      docker save -o /tmp/docker-cache/pg16.tar postgres:16-alpine
+    fi
+```
 
 ---
 
@@ -156,6 +173,8 @@ flowchart TD
 ```
 
 ### Self-Healing修正スクリプトの実装例
+
+（※なお、14.3節のE2Eテスト本体はフロントエンド標準のTypeScript/Playwrightで記述していますが、以下のCI横断ユーティリティスクリプトは本書の共通基盤ポリシーに従い、標準ライブラリのみで環境非依存に動作するPythonで記述しています。TypeScriptプロジェクト単体で完結させる場合は、Playwrightのカスタムレポーター `Reporter.onTestEnd` 内でNode.jsの `fetch` を用いて同等のLLM呼び出しを実装できます。）
 
 ```python
 # tools/self_healing_locator.py

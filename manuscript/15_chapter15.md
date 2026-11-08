@@ -92,7 +92,11 @@ spec:
             sum(rate(http_requests_total{service="payment-service"}[1m]))
 ```
 
-上記のYAML設定において、Kubernetes初学者が押さえておくべき `steps` と `analysis` の連動フローは以下の通りである。まず `steps` に定義された順序に従い、Argo Rolloutsは新バージョン（Canary）へのトラフィック比率を5%に切り替え（`setWeight: 5`）、10分間一時停止（`pause: { duration: 10m }`）する。このロールアウト進行と並行してバックグラウンドで常時稼働するのが `analysis` セクションであり、参照先の `AnalysisTemplate`（`success-rate`）に記述されたPrometheusクエリを1分間隔（`interval: 1m`）で継続評価する。もしステップの待機中にHTTP 5xxエラー率が1%（`0.01`）を超えた回数が、累計3回（`failureLimit: 3`）に達したとします。その瞬間、Argo Rolloutsは後続の `setWeight: 20` 以降のステップを即座に中断（Abort）し、人間が気付く前にトラフィックを旧安定版（Stable）へ100%引き戻してカナリアPodを隔離します。
+上記の2つのYAMLマニフェストにおける主要行の対応関係と連動フローは以下の通りである。
+
+- **`rollout.yaml` の `steps`（トラフィック制御）**: 新版（Canary）への比率をまず5%に切り替え（`setWeight: 5`）、10分間停止（`pause: { duration: 10m }`）して様子を見る段階的ステップである。
+- **`rollout.yaml` の `analysis`（監視の紐付け）**: ロールアウト進行中にバックグラウンドで常時呼び出す監視ルールとして、別ファイルの `templateName: success-rate` を指定している。
+- **`analysis-template.yaml` の `metrics`（合否判定と切戻し）**: Prometheusクエリを1分間隔（`interval: 1m`）で実行し、5xxエラー率が1%以下（`result[0] <= 0.01`）かを検査する。待機中にエラー率1%超が累計3回（`failureLimit: 3`）に達すると、Argo Rolloutsは `setWeight: 20` 以降を即時中断（Abort）する。そして人間が気付く前にトラフィックを旧安定版（Stable）へ100%引き戻し、カナリアPodを隔離する。
 
 ### 15.2.2 偽陽性（False Positive）による過剰ロールバックの防止とフラグ負債のクリーンアップ規律
 
@@ -206,6 +210,11 @@ def generate_postmortem_draft(slack_chat_history, monitoring_alerts):
     with urllib.request.urlopen(req) as resp:
         res = json.loads(resp.read().decode("utf-8"))
         return res["candidates"][0]["content"]["parts"][0]["text"]
+
+# ※LLM送信前のPIIサニタイズ前処理スニペット例（正規表現または Microsoft Presidio AnalyzerEngine の活用）
+# import re
+# sanitized_log = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[MASKED_EMAIL]', raw_slack_log)
+# sanitized_log = re.sub(r'(?i)(bearer|token|key)[\s:=]+["\']?[a-zA-Z0-9_\-\.]{16,}["\']?', '\1=[REDACTED_SECRET]', sanitized_log)
 ```
 
 ※本番運用時のセキュリティ（PIIマスキング）とトークン長対策：インシデント対応中のSlackログや監視アラートには、障害調査の過程で貼り付けられた顧客のメールアドレス、IPアドレス、注文ID、あるいはセッショントークン等の機密情報（PII）が含まれている危険性が高い。外部のLLM APIへ送信する前段には、必ず正規表現やMicrosoft Presidio等を用いたサニタイズ処理（メールアドレスを `[MASKED_EMAIL]`、APIキー形式を `[REDACTED_SECRET]` へ置換するフィルタ）を挟むこと。また、数時間に及ぶ長大なチャットログがコンテキスト長上限を超過しないよう、ボットの定型通知を除外し「アラート発火前後およびコマンド実行・意思決定メッセージ」を中心に時系列サンプリングして投入する設計が推奨される。

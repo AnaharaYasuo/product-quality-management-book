@@ -105,6 +105,8 @@ sequenceDiagram
 
 Sigstoreプロジェクトの `Cosign` を利用し、OIDC（OpenID Connect）連携による鍵不要（Keyless）署名をCI/CD上で実行する。なぜ従来のPGP署名のように「秘密鍵の生成・保管・ローテーション」が一切不要になるのでしょうか。それはビルド実行時にGitHub Actionsが発行する身分証（OIDCトークン）を認証局（Sigstore Fulcio）へ提示し、**「わずか10分間だけ有効な使い捨ての署名証明書」を発行して署名した直後に、秘密鍵をメモリ上から即座に破棄する**からである。「有効期間中（その10分間のうち）に本当に正規のCIで署名が行われた」という事実と公開鍵証明書は、改ざん不能な公開透明性ログ（Rekor）にタイムスタンプ付きで永久刻印されるため、後からデプロイ時に秘密鍵を使わずとも真正性を100%数学的に検証できる。これにより、Kubernetesのアドミッションコントローラ（Kyverno等）で「GitHub Actionsの正規ワークフローで署名されたイメージのみ起動を許可する」という決定論的防御が実現する。
 
+※なお、SLSA Level 3が要求する「隔離されたエフェメラル（使い捨て）ビルド環境」について、GitHub Actionsの標準ランナー（`ubuntu-latest` 等）はジョブごとにクリーンなVMが新規起動・破棄されるため標準で要件を満たしている。一方、セルフホステッドランナーを利用する場合は、ビルド間でキャッシュやファイルが残留して改ざん経路とならないよう注意が必要である。必ずActions Runner Controller（ARC）を用い、Kubernetes上で「1ジョブ1Podの使い捨てコンテナ」として起動する構成としなければならない。
+
 ```bash
 # GitHub ActionsのOIDCトークンを用いて署名を実行
 cosign sign --yes ghcr.io/myorg/myapp:v1.2.0
@@ -223,6 +225,8 @@ if __name__ == "__main__":
     if isinstance(result, dict) and os.environ.get("GITHUB_REPOSITORY") and os.environ.get("PR_NUMBER"):
         post_github_pr_comment(os.environ["GITHUB_REPOSITORY"], int(os.environ["PR_NUMBER"]), result)
 ```
+
+※上記のサンプルは、追加パッケージなしでどのCI環境でも即座に動作するよう標準ライブラリ（`urllib.request`）で記述している。実務で依存管理されたコンテナから実行する場合は、公式の `google-genai` SDKや `requests` ライブラリ（`HTTPAdapter(max_retries=3)` 付き）を用いることで、リトライや例外処理をより簡潔に記述できる。
 
 ---
 
