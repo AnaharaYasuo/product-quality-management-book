@@ -130,8 +130,9 @@ def evaluate_with_llm(filename: str, content: str, api_key: str) -> Dict[str, An
     candidate_models = [env_model] if env_model else [
         "gemini-3.5-flash-lite",
         "gemini-3.1-flash-lite",
-        "gemini-flash-lite-latest",
-        "gemini-3.1-flash-lite-preview"
+        "gemini-3.1-flash-lite-preview",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
     ]
 
     response_text = ""
