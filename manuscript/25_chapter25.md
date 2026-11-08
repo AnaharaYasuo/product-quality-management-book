@@ -195,8 +195,8 @@ flowchart LR
    過去90日間のアクティブ利用率がDAU/MAUの0.5%未満の機能を検知。
 2. **フェーズ2（事前アナウンス）**:
    利用しているごく少数のユーザーに対してUI上で代替手段と廃止スケジュールを通知。
-3. **フェーズ3（ブラウンアウト・テスト）**:
-   機能をいきなり消すのではなく、特定の時間帯だけ意図的に機能を無効化（フィーチャーフラグでOFF）し、問い合わせや重大な苦情が発生しないかを実験する。
+3. **フェーズ3（ブラウンアウト・テストと心理的摩擦を最小化するアナウンス文面）**:
+   機能をいきなり消すのではなく、特定の時間帯だけ意図的に機能を無効化（フィーチャーフラグでOFF）し、問い合わせや重大な苦情が発生しないかを実験する。この際、ユーザーの心理的動揺やクレームを防ぐため、UIバナーや通知メールでは単に「機能を廃止します」と突き放すのではなく、**「【重要なお知らせ】より高速で安全な『新・一括エクスポート機能（v2）』への統合に伴い、旧CSV出力機能は○月○日をもって提供を終了いたします。今後は画面右上の『新エクスポート』ボタンよりワンクリックで同等のデータを取得いただけます（なお、完全終了に先立ち、○月○日の14:00〜16:00に一時停止テストを実施いたします）」**と案内する。このように、「①上位互換となる代替手段への具体的な誘導」「②統合によるユーザーメリット」「③計画的な一時停止（ブラウンアウト）の事前予告」の3点セットを必ず添えるのが親切なプロダクト運用の鉄則である。
 4. **フェーズ4（コード・テーブル完全パージ）**:
    ブランチを切り、バックエンド、フロントエンド、DBマイグレーションから対象コードを物理的に削除。PRでレビューしマージする。
 
@@ -274,7 +274,23 @@ class ProductValidationAuditor:
         return results
 
 
+def fetch_metrics_from_db_or_api(dsn: str) -> List[FeatureUsageMetric]:
+    """実運用でのデータ取得イメージ：DWH（BigQuery / PostgreSQL）やPostHog APIから直近30日の機能別集計を取得する接続アダプタ"""
+    # 例: SQLAlchemy や BigQuery Client を用いてイベントログテーブルから集計取得
+    # query = """
+    #   SELECT feature_id, feature_name, COUNT(DISTINCT exposed_user_id) AS total_users_exposed,
+    #          COUNT(DISTINCT started_user_id) AS started_count, COUNT(DISTINCT completed_user_id) AS completed_count,
+    #          AVG(duration_sec) AS avg_duration_sec, SUM(CASE WHEN is_error THEN 1 ELSE 0 END) AS error_count
+    #   FROM analytics_feature_events WHERE event_date >= CURRENT_DATE - INTERVAL '30 days'
+    #   GROUP BY feature_id, feature_name
+    # """
+    # with sqlalchemy.create_engine(dsn).connect() as conn:
+    #     return [FeatureUsageMetric(**dict(row._mapping)) for row in conn.execute(sqlalchemy.text(query))]
+    return []
+
+
 if __name__ == "__main__":
+    # 実環境では os.environ.get("ANALYTICS_DB_DSN") があれば fetch_metrics_from_db_or_api() を呼び出し、未設定時はモックで検証
     mock_metrics = [
         FeatureUsageMetric("feat_ai_summary", "AI自動要約機能", 10000, 4200, 3900, 12.4, 45),
         FeatureUsageMetric("feat_legacy_csv_export", "レガシー独自形式CSV出力", 10000, 15, 8, 140.2, 3),

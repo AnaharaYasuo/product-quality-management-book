@@ -80,7 +80,9 @@ PRがオープンされてからマージされるまでの総サイクルタイ
 
 特定のシニアエンジニアやテックリードにレビュー負荷が極端に偏る「レビュアー単一障害点（SPOF）」は、組織全体のベロシティ低下とバーンアウトの元凶である。
 
-GitHubのGraphQL APIを用いてPRレビュアーごとのアサイン数、承認数、レビューコメント数を抽出し、ジニ係数（不平等度指数）を算出する。ジニ係数が0.5を超える場合、知識のサイロ化とレビュー渋滞が発生していると判定する。なお、以下のスクリプトを実行する際は、環境変数 `GITHUB_TOKEN` に対象リポジトリのPR読み取り権限を持つトークンを設定しておく必要がある。具体的には、Fine-grained PATの場合は `Pull requests: Read-only`、Classic PATの場合は `repo` および `read:org` スコープを付与する。
+GitHubのGraphQL APIを用いてPRレビュアーごとのアサイン数、承認数、レビューコメント数を抽出し、ジニ係数（不平等度指数）を算出する。ジニ係数が0.5を超える場合、知識のサイロ化とレビュー渋滞が発生していると判定する。
+
+なお、以下のスクリプト（および13.5節のAIスクラムマスター）はPython 3.10以降の標準ライブラリ（`urllib.request`, `json`, `collections`）のみで動作します。外部パッケージの `pip install` は一切不要であり、クローンしたその場ですぐに実行可能です。事前準備として、GitHubのSettings ➔ Developer settings ➔ Personal access tokensからトークンを発行します。スコープはFine-grained PATなら対象リポジトリの `Pull requests: Read-only` と `Metadata: Read-only`、Classic PATなら `repo` と `read:org` を選択します。あとはターミナルで `export GITHUB_TOKEN="ghp_xxx"`（PowerShellなら `$env:GITHUB_TOKEN="ghp_xxx"`）を設定するだけで準備完了です。
 
 ```python
 # tools/analyze_review_bottlenecks.py
@@ -208,7 +210,9 @@ def generate_process_diagnosis(sprint_metrics):
             {"role": "user", "parts": [{"text": f"{system_prompt}\n\n{user_content}"}]}
         ]
     }
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    # 将来のモデル更新や非推奨化に備え、モデル名は環境変数（GEMINI_MODEL）で外部から柔軟に切り替え可能とする
+    model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req) as resp:
         result = json.loads(resp.read().decode("utf-8"))

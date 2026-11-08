@@ -199,6 +199,21 @@ mutmut run --paths-to-mutate=src/domain/order_service.py
 mutmut results  # 生き残った変異体IDの一覧を表示し、mutmut show <id> で差分を確認
 ```
 
+さらに、CIパイプラインでPRごとに「変更されたPythonファイルのみ」を対象に差分ミューテーションテスト（Incremental Mutation Testing）を実行するGitHub Actionsワークフロースニペットは以下の通りです。これにより、リポジトリ全体では数時間かかる変異テストをわずか1〜2分で完了させることができます。
+
+```yaml
+# .github/workflows/mutation-diff-gate.yml（PR変更ファイル限定の高速ミューテーションゲート）
+- name: Run Incremental Mutation Testing on Changed Domain Files
+  run: |
+    CHANGED_PY=$(git diff --name-only origin/main...HEAD -- 'src/domain/**/*.py' | tr '\n' ',' | sed 's/,$//')
+    if [ -n "$CHANGED_PY" ]; then
+      echo "Mutating changed files: $CHANGED_PY"
+      mutmut run --paths-to-mutate="$CHANGED_PY"
+    else
+      echo "No domain files changed. Skipping mutation test."
+    fi
+```
+
 ---
 
 ## 9.4 Flakyテスト（不安定なテスト）の静的検出と排除プロトコル
@@ -339,6 +354,8 @@ if __name__ == "__main__":
     print("\n判定: 合格（人間へのPR作成を承認します）。")
     sys.exit(0)
 ```
+
+※実運用における堅牢性への補足：上記のサンプルスクリプトでは理解しやすさのため例外処理を簡略化していますが、本番CIで稼働させる際は以下の2点を組み込むとより堅牢になります。第1に、LLMが生成した無限ループコードによるハングアップを防ぐため、`subprocess.run(..., timeout=30)` でタイムアウト遮断を設けます。第2に、テストランナーの異常終了（Exit Code 2以上）により `coverage_new.json` が生成されないケースへの対策です。`FileNotFoundError` や `JSONDecodeError` を `try...except` で捕捉し、安全に候補破棄（False返却）へ倒します。
 
 ### 3. 人間レビュアーとAI生成テストの協調ワークフロー
 
