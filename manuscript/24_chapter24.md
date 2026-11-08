@@ -69,10 +69,11 @@ flowchart TD
    - 本番トラフィックに対するSLI/SLO監視。AIの出力がどれほど魅力的であっても、レイテンシやエラー率が閾値を超えた瞬間に自動的に切り離す。
 
 > **[補足コラム] 主要言語別・第1層〜第3層の代表的決定論的アンカーツール対応表**
+>
 > - **Python**: 【第1層】`mypy --strict` / `pyright` ＋ 【第2層】`Pydantic` / `deal` ＋ 【第3層】`pytest` / `testcontainers-python` / `mutmut`
 > - **TypeScript / Node.js**: 【第1層】`tsc --noEmit (strict: true)` ＋ 【第2層】`Zod` / `io-ts` ＋ 【第3層】`Vitest` / `Playwright` / `Stryker`
 > - **Rust**: 【第1層】`rustc`（所有権・借用チェッカー）/ `clippy` ＋ 【第2層】`serde` / `garde`（型状態パターン） ＋ 【第3層】`cargo test` / `proptest` / `cargo-mutants`
-> - **Go**: 【第1層】`go vet` / `staticcheck` ＋ 【第2層】`ozzo-validation` / ` cue` ＋ 【第3層】`go test -race` / `testcontainers-go`
+> - **Go**: 【第1層】`go vet` / `staticcheck` ＋ 【第2層】`ozzo-validation` / `cue` ＋ 【第3層】`go test -race` / `testcontainers-go`
 
 ### 実装例：Pydanticによる実行時契約アンカー
 

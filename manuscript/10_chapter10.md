@@ -300,6 +300,7 @@ if __name__ == "__main__":
 ```
 
 ※実行環境（Windows/macOS/CI）に関する補足事項：
+
 1. **CI環境でのShallow Clone（浅いクローン）対策**: GitHub Actions等のCI環境では、デフォルトで最新1コミットのみを取得する `fetch-depth: 1`（Shallow Clone）が有効になっています。そのまま実行すると直近30日分の `git log` が取得できず、総コミット数が1件になってしまうため注意が必要です。CI上で本スクリプトを実行する際は、必ず `actions/checkout@v4` のオプションに `fetch-depth: 0` を指定するか、実行前に `git fetch --unshallow` を呼び出してください。
 2. **OS間のクォート・文字コード差異**: WindowsのPowerShellやコマンドプロンプト環境で日本語コミットメッセージを扱う場合、標準出力のエンコーディングが `cp932` となって文字化けや `UnicodeDecodeError` が起きることがあります。環境変数 `PYTHONUTF8=1` を設定するか、`git -c i18n.logOutputEncoding=utf-8 log ...` を指定することで、Windows・macOS・Linuxを問わず完全に同一の動作を保証できます。
 
