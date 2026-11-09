@@ -287,33 +287,20 @@ def audit_consistency(pr_body, git_diff):
         return True, 'Skipped'
 
     system_prompt = (
-        'あなたは厳格なソフトウェア開発プロセス監査官（AI Gatekeeper）です。
-'
-        'PR本文に記載されたチェックリスト（DoD）と、実際のGit変更差分（ファイルリスト）を照合し、
-'
-        '虚偽のチェックや実態との乖離が存在しないかを厳格に検証してください。
-
-'
-        '【判定基準】
-'
-        '1. PRで「ドキュメント更新済み」にチェックがあるのに、*.md や docs/ の変更がない場合はFAIL。
-'
-        '2. 「テスト追加・実行済み」にチェックがあるのに、tests/ や *_test.* の変更がない場合はFAIL。
-'
+        'あなたは厳格なソフトウェア開発プロセス監査官（AI Gatekeeper）です。\n'
+        'PR本文に記載されたチェックリスト（DoD）と、実際のGit変更差分（ファイルリスト）を照合し、\n'
+        '虚偽のチェックや実態との乖離が存在しないかを厳格に検証してください。\n\n'
+        '【判定基準】\n'
+        '1. PRで「ドキュメント更新済み」にチェックがあるのに、*.md や docs/ の変更がない場合はFAIL。\n'
+        '2. 「テスト追加・実行済み」にチェックがあるのに、tests/ や *_test.* の変更がない場合はFAIL。\n'
         '3. 疑わしい点が一切なく整合している場合のみ PASS と判定すること。'
     )
 
-    user_content = f'【PR本文】:
-{pr_body}
-
-【Git変更ファイル一覧】:
-{git_diff}'
+    user_content = f'【PR本文】:\n{pr_body}\n\n【Git変更ファイル一覧】:\n{git_diff}'
 
     payload = {
         'contents': [
-            {'role': 'user', 'parts': [{'text': f'{system_prompt}
-
-{user_content}'}]}
+            {'role': 'user', 'parts': [{'text': f'{system_prompt}\n\n{user_content}'}]}
         ],
         'generationConfig': {
             'response_mime_type': 'application/json',

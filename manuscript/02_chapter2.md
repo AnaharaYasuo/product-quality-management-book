@@ -16,12 +16,12 @@
 
 ```mermaid
 flowchart TD
-    subgraph 誤ったシフトレフト（テスト実行の前倒し）
+    subgraph Wrong_ShiftLeft ["誤ったシフトレフト（テスト実行の前倒し）"]
         M1["コード実装"] --> M2["単体テストの強制<br>（開発者にテスト負担が集中 💥）"]
         M2 --> M3["後流での仕様変更・手戻り<br>（結局テストコード全書き直し 😭）"]
     end
 
-    subgraph 真のシフトレフト（全成果物の継続的検証・監査）
+    subgraph True_ShiftLeft ["真のシフトレフト（全成果物の継続的検証・監査）"]
         T1["成果物①: 企画・要求 (PRD)"] -->|即座に検証・監査| V1["矛盾・暗黙前提の排除"]
         V1 --> T2["成果物②: 仕様・受入基準"] -->|即座に検証・監査| V2["仕様ファジング・境界値網羅"]
         V2 --> T3["成果物③: 設計・アーキテクチャ"] -->|即座に検証・監査| V3["テスタビリティ・後方互換性担保"]
@@ -92,6 +92,7 @@ flowchart LR
 ```mermaid
 classDiagram
     class 成果物の二大分類 {
+        <<Abstract>>
     }
 
     class プロダクト成果物_What {
@@ -107,7 +108,7 @@ classDiagram
     class プロセス成果物_How {
         +① 開発規約 (DEVELOPMENT_RULES.md, CONTRIBUTING.md)
         +② ブランチ戦略・運用設計 (Trunk-based, GitHub Flow)
-        +③ ゲート定義 (DoD:完成の定義, DoR:準備完了の定義)
+        +③ ゲート定義 (DoD 完成の定義 / DoR 準備完了の定義)
         +④ テンプレート資産 (Issue/PRテンプレート)
         +⑤ インシデント対応規律 (ポストモーテム手順書)
         +⑥ チーム儀式・メトリクス (ふりかえり設計, DORA運用)
@@ -189,19 +190,19 @@ classDiagram
 
 ```mermaid
 flowchart TD
-    subgraph 二重ループ（The Dual-Loop Model）
+    subgraph Dual_Loop ["二重ループ（The Dual-Loop Model）"]
         direction TB
 
-        subgraph Validationループ（外側のループ：価値の確認）
+        subgraph Validation_Loop ["Validationループ（外側のループ：価値の確認）"]
             V_Goal["顧客・市場の真の課題"] --> V_Build["プロダクトの企画・仮説"]
             V_Build --> V_Deploy["本番リリース・市場投入"]
             V_Deploy --> V_Eval["利用時の品質（ISO 25019）<br>・ユーザー行動分析<br>・ビジネスKPI達成度<br>・仮説検証"]
             V_Eval -->|ピボット / 仕様破棄| V_Goal
         end
 
-        subgraph Verificationループ（内側のループ：仕様の確認）
+        subgraph Verification_Loop ["Verificationループ（内側のループ：仕様の確認）"]
             direction LR
-            Ver_Spec["成果物の仕様<br>(PRD / 設計 / コード)"] --> Ver_Check["静的・動的検証<br>・Linter / SAST<br>・自動テスト / DAST<br>・DoD監査"]
+            Ver_Spec["成果物の仕様<br>(PRD / 設計 / コード)"] --> Ver_Check["静的解析・各種テスト<br>・静的解析 (Linter) / SAST<br>・自動テスト / DAST<br>・DoD監査"]
             Ver_Check -->|欠陥検知・即時修正| Ver_Spec
         end
 

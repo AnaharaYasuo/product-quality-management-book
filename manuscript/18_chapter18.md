@@ -132,7 +132,7 @@ if __name__ == "__main__":
 RagasやLLM-as-a-JudgeをCIパイプラインに組み込む際、すべてのPRコミットに対して毎回1,000件のゴールデンデータセットを最高性能モデル（GPT-4oやClaude 3.5 Sonnet等）で評価させると、APIコストの爆発と数十分のCI待機時間が発生し、運用が破綻する。実務では以下の**「2階層評価（Tiered Evaluation）と軽量モデルの使い分け」**によってコストと速度を最適化する。
 
 1. **PRコミット時（Fast Smoke Gate / 1分以内・数円）**:
-   `prompts/` や `rag/` 配下のファイルに変更があるPRでのみトリガーし、ゴールデンデータセットから重要度の高い「コア20件（Stratified Sample）」だけを抽出する。さらに審査員（Judge）モデルには高速・低単価な軽量モデル（`gemini-1.5-flash` や `gpt-4o-mini`）を指定し、並列非同期実行することで1分以内・1回あたり数円のコストでリグレッションを即座に検知する。
+   `prompts/` や `rag/` 配下のファイルに変更があるPRでのみトリガーし、ゴールデンデータセットから重要度の高い「コア20件（Stratified Sample）」だけを抽出する。さらに審査員（Judge）モデルには高速・低単価な軽量モデル（`gemini-2.5-flash` や `gpt-4o-mini`）を指定し、並列非同期実行することで1分以内・1回あたり数円のコストでリグレッションを即座に検知する。
 2. **夜間・リリース前（Full Regression Suite）**:
    全データセット（500〜1,000件）および高コストなフロンティア審査モデルによる精密評価は、Nightlyビルドや `release/*` ブランチ作成時の非同期ゲートとして分離実行する。その際、評価キャッシュのキー（Cache Key）として **`sha256(システムプロンプト全文 + 推論モデルのスナップショットバージョン名 + 生成パラメータ + 質問・検索文脈 + 審査ルーブリック定義)`** の複合ハッシュ値を算出する。このハッシュが一致するケースでは過去の評価スコアを即座に返す仕組み（SQLiteやRedisでの決定論的キャッシュ）を組み込み、無駄なAPI呼び出しをゼロにする。なお、クラウドLLMのエイリアス名（例：`gpt-4o`）は、プロバイダ側の更新により同じパラメータでも出力分布が微妙に変化することがある。そのためキャッシュキーには必ず日付固定のスナップショット名（例：`gpt-4o-2024-08-06` 等）を含め、TTL（例：14日間）を設定して定期的に再評価する運用が堅牢である。
 
@@ -214,7 +214,7 @@ def generate_adversarial_prompts(system_purpose: str) -> list[str]:
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"response_mime_type": "application/json"}
     }
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=15) as resp:
         res = json.loads(resp.read().decode("utf-8"))

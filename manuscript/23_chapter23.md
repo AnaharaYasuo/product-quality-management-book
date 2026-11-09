@@ -128,7 +128,7 @@ flowchart TD
 
 ### AST解析による空洞テストの自動摘発メカニズム
 
-静的解析ツールが「行カバレッジ」を測定する仕組みは、単純にインタプリタがそのコード行を実行したかどうかのトレース（sys.settrace）を記録するだけである。したがって、戻り値を無視して関数を実行するだけのテストであっても、カバレッジ計測エンジンからは「完全にテストされた」と見なされる。
+カバレッジ計測ツール（Coverage.pyやIstanbulなど）が「行カバレッジ」を測定する仕組みは、単純にインタプリタやランタイムがそのコード行を実行したかどうかの動的トレース（`sys.settrace` 等）を記録するだけである。したがって、戻り値を無視して関数を実行するだけのテストであっても、カバレッジ計測エンジンからは「完全にテストされた」と見なされる。
 
 AST（抽象構文木）解析では、テスト関数の構文ツリーを走査し、以下の2つのいずれかが必ず含まれているかを決定論的に検証する：
 
@@ -173,7 +173,7 @@ def audit_semantic_mock_abuse_with_llm(test_code: str, api_key: str) -> dict:
         '出力形式: {"is_hollow_hack": true/false, "reason": "理由"}'
     )
     req = urllib.request.Request(
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
         data=json.dumps({"contents": [{"role": "user", "parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}).encode("utf-8"),
         headers={"Content-Type": "application/json"}
     )
