@@ -41,9 +41,7 @@ jobs:
           mkdir -p output
           pandoc \
             manuscript/metadata.yaml \
-            manuscript/00_intro.md \
-            manuscript/01_chapter1.md \
-            manuscript/99_afterword.md \
+            $(ls manuscript/*.md | sort) \
             -o "output/${{ steps.meta.outputs.filename }}" \
             --toc \
             --toc-depth=2 \
