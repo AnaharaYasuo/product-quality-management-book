@@ -18,21 +18,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Pandoc
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Pandoc, Fonts & Playwright (for PDF & Mermaid SVG)
         run: |
           sudo apt-get update
-          sudo apt-get install -y pandoc
+          sudo apt-get install -y pandoc fonts-noto-cjk
+          python -m pip install --upgrade pip
+          pip install markdown pygments pyyaml playwright
+          playwright install --with-deps chromium
 
-      - name: Determine EPUB Filename
+      - name: Determine Output Filenames
         id: meta
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             TAG_NAME="${GITHUB_REF#refs/tags/}"
-            echo "filename=product-quality-management-${TAG_NAME}.epub" >> "$GITHUB_OUTPUT"
+            echo "epub_filename=product-quality-management-${TAG_NAME}.epub" >> "$GITHUB_OUTPUT"
+            echo "pdf_filename=product-quality-management-${TAG_NAME}.pdf" >> "$GITHUB_OUTPUT"
+            echo "html_filename=product-quality-management-${TAG_NAME}.html" >> "$GITHUB_OUTPUT"
             echo "is_release=true" >> "$GITHUB_OUTPUT"
             echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
           else
-            echo "filename=product-quality-management.epub" >> "$GITHUB_OUTPUT"
+            echo "epub_filename=product-quality-management.epub" >> "$GITHUB_OUTPUT"
+            echo "pdf_filename=product-quality-management.pdf" >> "$GITHUB_OUTPUT"
+            echo "html_filename=product-quality-management.html" >> "$GITHUB_OUTPUT"
             echo "is_release=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -42,16 +54,31 @@ jobs:
           pandoc \
             manuscript/metadata.yaml \
             $(ls manuscript/*.md | sort) \
-            -o "output/${{ steps.meta.outputs.filename }}" \
+            -o "output/${{ steps.meta.outputs.epub_filename }}" \
             --toc \
             --toc-depth=2 \
             --css=manuscript/style.css
 
-      - name: Upload EPUB Artifact
+      - name: Build PDF & Run E2E Smoke Verification (Mermaid SVG & 27 Chapters)
+        run: |
+          python tools/build_pdf.py \
+            --html-out "output/${{ steps.meta.outputs.html_filename }}" \
+            --pdf-out "output/${{ steps.meta.outputs.pdf_filename }}"
+
+      - name: Generate SHA-256 Checksums (Supply Chain Provenance)
+        run: |
+          cd output
+          sha256sum "${{ steps.meta.outputs.epub_filename }}" "${{ steps.meta.outputs.pdf_filename }}" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload EPUB & PDF Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.meta.outputs.filename }}
-          path: output/${{ steps.meta.outputs.filename }}
+          name: book-artifacts-${{ github.ref_name }}
+          path: |
+            output/${{ steps.meta.outputs.epub_filename }}
+            output/${{ steps.meta.outputs.pdf_filename }}
+            output/SHA256SUMS.txt
 
       - name: Create GitHub Release on Tag Push
         if: steps.meta.outputs.is_release == 'true'
@@ -59,5 +86,8 @@ jobs:
         with:
           name: Release ${{ steps.meta.outputs.tag_name }}
           tag_name: ${{ steps.meta.outputs.tag_name }}
-          files: output/${{ steps.meta.outputs.filename }}
+          files: |
+            output/${{ steps.meta.outputs.epub_filename }}
+            output/${{ steps.meta.outputs.pdf_filename }}
+            output/SHA256SUMS.txt
           generate_release_notes: true

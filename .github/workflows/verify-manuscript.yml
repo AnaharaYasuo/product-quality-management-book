@@ -2,9 +2,12 @@ name: Verify Manuscript and Quality Gate
 
 on:
   push:
-    branches: [main, feat/*]
+    branches: [main, feat/*, fix/*]
   pull_request:
     branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   static-analysis:
@@ -19,17 +22,40 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Markdownlint & Textlint
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Markdownlint, Textlint & Python Dependencies
         run: |
           npm install -g markdownlint-cli textlint textlint-rule-preset-ja-technical-writing textlint-rule-prh
+          python -m pip install --upgrade pip
+          pip install pyyaml playwright
+          playwright install --with-deps chromium
 
       - name: Run Markdownlint
         run: |
           markdownlint "manuscript/*.md" --config ".markdownlint.yaml" --ignore "manuscript/style.css"
 
-      - name: Run Python Manuscript Linter
+      - name: Run All Deterministic Quality Gates (Linter, Terminology, Embedded Code AST, DoD, Mermaid SVG)
         run: |
-          python3 tools/lint_manuscript.py
+          python tools/run_all_gates.py
+
+      - name: Verify Process Gate (PR Issue Traceability)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          python -c '
+          import os, re, sys
+          text = (os.environ.get("PR_TITLE", "") + "\n" + os.environ.get("PR_BODY", ""))
+          if not re.search(r"(#\d+|Closes\s+#\d+|Ref\s+#\d+)", text, re.IGNORECASE):
+              print("FAILED: [Process-Gate] PRにGitHub Issue番号（例: Closes #123 または #123）が紐付けられていません。")
+              sys.exit(1)
+          print("PASSED: PR Issue traceability verified.")
+          '
 
   link-check:
     name: Dead Link Checker (Lychee DAST)

@@ -163,9 +163,9 @@ def repair_broken_schema(target_schema, incoming_columns_sample):
         "最適なカラムマッピング（リネーム・型変換ルール）をJSONで提案してください。\n\n"
         "【出力スキーマ】\n"
         "{\n"
-        "  "mapping": {"incoming_col": "expected_col"},\n"
-        "  "transformations": {"incoming_col": "cast_or_regex_rule"},\n"
-        "  "confidence": 0.95\n"
+        '  "mapping": {"incoming_col": "expected_col"},\n'
+        '  "transformations": {"incoming_col": "cast_or_regex_rule"},\n'
+        '  "confidence": 0.95\n'
         "}"
     )
 
@@ -176,7 +176,7 @@ def repair_broken_schema(target_schema, incoming_columns_sample):
         "contents": [{"role": "user", "parts": [{"text": f"{system_prompt}\n\n{user_content}"}]}],
         "generationConfig": {"response_mime_type": "application/json"}
     }
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:

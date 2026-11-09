@@ -84,7 +84,7 @@ Kubernetesはクラスタ全体のリソース共有と自律回復を担うた�
 
 ---
 
-## 8.2 静的セキュリティ・コンプライアンス検証（tfsec、Checkov、Hadolint、kube-linter）
+## 8.2 IaC・コンテナの静的セキュリティ解析とLinter（tfsec、Checkov、Hadolint、kube-linter）
 
 インフラの検証において最も重要な原則は、「本番デプロイ前に静的解析で99%の構成ミスを遮断する」ことです。各種ツールをCIパイプラインのブロッキングゲートとして統合します。
 
@@ -115,7 +115,7 @@ sequenceDiagram
     end
 ```
 
-### 1. Containerfileの静的検証（Hadolint）
+### 1. Containerfileの静的解析（Hadolint）
 
 Dockerfileの記述ルールをAST解析し、ベストプラクティス違反を検知します。
 Hadolintは、Docker公式およびCISベンチマークが推奨するセキュリティガイドラインを厳密にチェックします。主な検知項目には以下が含まれます。
@@ -151,7 +151,7 @@ EXPOSE 3000
 CMD ["node", "server.js"]
 ```
 
-### 2. Kubernetesマニフェストの静的検証（kube-linter / Conftest）
+### 2. Kubernetesマニフェストの静的解析・ポリシー検査（kube-linter / Conftest）
 
 Kubernetesクラスタにデプロイする前に、YAMLマニフェストの構成ミスを静的に遮断します。
 kube-linterやOpen Policy Agent（OPA / Conftest）を用いることで、以下の本番稼働リスクをCIで未然に排除します。
