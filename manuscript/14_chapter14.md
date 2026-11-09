@@ -194,14 +194,14 @@ def repair_broken_locator(broken_locator, page_dom_snippet, target_intent):
         f"壊れたロケータ: {broken_locator}\n"
         f"テストの意図: {target_intent}\n"
         f"最新DOMスニペット:\n{page_dom_snippet}\n\n"
-        "回答はJSON形式で {"new_locator": "page.getByRole(...)", "confidence": 0.95} としてください。"
+        '回答はJSON形式で {"new_locator": "page.getByRole(...)", "confidence": 0.95} としてください。'
     )
 
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"response_mime_type": "application/json"}
     }
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req) as resp:
         res = json.loads(resp.read().decode("utf-8"))

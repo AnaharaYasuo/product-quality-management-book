@@ -45,7 +45,8 @@ description: 書籍『プロダクト品質管理の実践ガイド』の執筆�
    - `manuscript/<No>_<chapter>.md` を作成または編集。
 4. **セルフレビュー（本スキルのチェックリスト実行）**:
    - 文字数、図解、コード、アンチパターン、合否基準、章末課題を網羅しているか検証。
-5. **ローカルビルド検証**:
-   - 構文エラーやEPUBレンダリング不備がないことを確認。
+5. **ローカル統合品質ゲート（Paved Path）検証**:
+   - `python tools/run_all_gates.py` を実行し、日本語・技術用語契約Linter、埋め込みコードAST検査、商業DoD監査、Mermaid実ブラウザ描画検証がすべてPASSすることを確認。
+   - `python tools/build_pdf.py` により結合HTML/PDFの生成とE2Eスモークテストを実施。
 6. **PR作成**:
    - `main` 宛てにPRを作成（`Closes #<No>`）。PR本文にセルフチェック結果を明記。

@@ -164,7 +164,6 @@ $$\text{Mutation Score} = \frac{\text{Killed Mutants}}{\text{Total Mutants}} \ti
 商業出版水準の開発現場では、コアなドメインロジックにおいて**ミューテーションスコア75%以上（極めてクリティカルな金融・医療ドメインでは85%以上）**を要求します。
 
 ```json
-// stryker.config.json の設定例
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "packageManager": "npm",

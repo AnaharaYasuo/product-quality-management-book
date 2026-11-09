@@ -205,7 +205,7 @@ def generate_postmortem_draft(slack_chat_history, monitoring_alerts):
     payload = {
         "contents": [{"role": "user", "parts": [{"text": f"{system_prompt}\n\n{user_content}"}]}]
     }
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req) as resp:
         res = json.loads(resp.read().decode("utf-8"))

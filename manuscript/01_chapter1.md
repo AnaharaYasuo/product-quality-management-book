@@ -74,14 +74,14 @@ GoogleのDORA（DevOps Research and Assessment）チームは、世界中の数�
 
 ```mermaid
 flowchart TD
-    subgraph DORAの調査結果：両立の構造
+    subgraph DORA_Result ["DORAの調査結果：両立の構造"]
         HighSpeed["高いデリバリー速度<br>（1日に複数回のデプロイ / リードタイム数時間）"]
         HighQuality["高い安定性と品質<br>（変更失敗率 0〜15% / 復旧時間1時間未満）"]
         
         HighSpeed <-->|正の相関（相互補強）| HighQuality
     end
 
-    subgraph 共通の基盤
+    subgraph Common_Foundation ["共通の基盤"]
         Foundation["・小さなバッチサイズ（小さなPR）<br>・包括的なテスト自動化パイプライン<br>・全成果物に対する継続的検証<br>・安全なリリース基盤（フィーチャーフラグ/カナリア）"]
     end
 
@@ -128,13 +128,13 @@ CTOやVPoE、テックリードが開発組織に「確証（Assurance）」の�
 
 ```mermaid
 flowchart TD
-    subgraph 従来の「テスト（Testing）」
+    subgraph Legacy_Testing ["従来の「テスト（Testing）"]
         T1["コードが完成した後に実行"] --> T2["事前に定義された入力を与える"]
         T2 --> T3["期待通りの出力が出るか（合否判定）"]
         T3 --> T4["受動的・点検的な確認"]
     end
 
-    subgraph 現代の「確証（Assurance）」
+    subgraph Modern_Assurance ["現代の「確証（Assurance）"]
         A1["ライフサイクル全般（要求・設計・コード・プロセス）"] --> A2["リスクと非機能要件の包括的評価"]
         A2 --> A3["決定論的アンカー（型・静的解析・数学的テスト）による証明"]
         A3 --> A4["「システムが意図通り安全に機能する」客観的証拠（Evidence）の提示"]
@@ -262,7 +262,7 @@ ISO/IEC 25010:2023の9大特性は強力な体系ですが、現場のエンジ�
 
 以下のプロンプトテンプレートを、新規機能の仕様検討時やPRDレビュー時に実行します。入力として機能要件のドラフトテキストを渡すだけで、見落とされがちな非機能要件や安全性リスクが網羅的に出力されます。
 
-```markdown
+````markdown
 ### [SYSTEM]
 あなたは国際規格 ISO/IEC 25010:2023（製品品質モデル）および ISO/IEC 25019:2023（利用時の品質）に精通した「リード品質保証アーキテクト」です。
 提供された機能仕様ドラフトを敵対的（Adversarial）かつ客観的な視点から分析し、欠落している非機能要件、潜在リスク、受入基準（Acceptance Criteria）の不備を洗い出してください。
@@ -294,6 +294,7 @@ Scenario: 境界値・異常系アクションの検証
   When 複数タブで同時に同一クーポンで購入確定を行った場合
   Then 最初の1件のみ成功し、2件目以降はエラーとなること
 ```
+````
 
 ### 実行例：決済クーポン適用機能への適用結果
 
