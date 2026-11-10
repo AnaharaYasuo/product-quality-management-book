@@ -215,6 +215,14 @@ def generate_postmortem_draft(slack_chat_history, monitoring_alerts):
 # import re
 # sanitized_log = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[MASKED_EMAIL]', raw_slack_log)
 # sanitized_log = re.sub(r'(?i)(bearer|token|key)[\s:=]+["\']?[a-zA-Z0-9_\-\.]{16,}["\']?', r'\1=[REDACTED_SECRET]', sanitized_log)
+
+
+if __name__ == "__main__":
+    draft = generate_postmortem_draft(
+        slack_chat_history="14:02 [SRE] 決済APIの5xxエラー率が3.2%に上昇 / 14:05 [SRE] Argo Rolloutsで前バージョンへ自動切戻し完了",
+        monitoring_alerts="Alert: HighErrorRate service=payment-service status=5xx rate=3.2%",
+    )
+    print(draft)
 ```
 
 ※本番運用時のセキュリティ（PIIマスキング）とトークン長対策：インシデント対応中のSlackログや監視アラートには、障害調査の過程で貼り付けられた顧客のメールアドレス、IPアドレス、注文ID、あるいはセッショントークン等の機密情報（PII）が含まれている危険性が高い。外部のLLM APIへ送信する前段には、必ず正規表現やMicrosoft Presidio等を用いたサニタイズ処理（メールアドレスを `[MASKED_EMAIL]`、APIキー形式を `[REDACTED_SECRET]` へ置換するフィルタ）を挟むこと。また、数時間に及ぶ長大なチャットログがコンテキスト長上限を超過しないよう、ボットの定型通知を除外し「アラート発火前後およびコマンド実行・意思決定メッセージ」を中心に時系列サンプリングして投入する設計が推奨される。

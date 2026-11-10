@@ -92,6 +92,15 @@ def validate_incoming_orders(df: pd.DataFrame):
         print("❌ データバリデーション失敗: 不正なレコードが検出されました。")
         sys.exit(1)
     print("✅ 全てのデータ品質Expectationsをパスしました。")
+
+
+if __name__ == "__main__":
+    sample_df = pd.DataFrame({
+        "order_id": ["ORD-001", "ORD-002"],
+        "total_amount": [4500, 12800],
+        "status": ["PAID", "SHIPPED"],
+    })
+    validate_incoming_orders(sample_df)
 ```
 
 このバリデーションをAirflowやPrefect、GitHub Actionsのパイプラインに埋め込むことで、不正データのDWH（データレイク）への流入を境界で物理的に遮断する。なお、上記コードでは手元で即座に試せるようインメモリ設定（`gx.get_context()`）を使用している。本番のAirflowやPrefect等で日次運用する際は、`gx.get_context(mode="file", project_root_dir="/opt/gx")` やS3/PostgreSQLストアを指定し、検証結果（Data Docs）を監査証跡として永続化する。また、Great Expectationsは旧V2 APIと最新のGX Core 1.0以降（Fluent Data Sources方式）で記述が大きく異なる。そのため、環境構築時は `requirements.txt` で `great_expectations>=1.0.0` のようにメジャーバージョンを厳密にピン留めすることが必須である。
@@ -190,6 +199,14 @@ def repair_broken_schema(target_schema, incoming_columns_sample):
         # API障害や不正なJSON出力時は、誤ったスキーマ変換を防ぐため確信度0.0を返して安全に退避（Dead Letter）へ倒す
         print(f"[ERROR] AI Schema Healer failed ({e}). Routing batch to Dead Letter Table.")
         return {"mapping": {}, "transformations": {}, "confidence": 0.0}
+
+
+if __name__ == "__main__":
+    proposal = repair_broken_schema(
+        target_schema={"user_id": "string", "order_total": " integer"},
+        incoming_columns_sample={"usr_id": "U-102", "total_yen": "4500"},
+    )
+    print(f"Schema repair proposal: {proposal}")
 ```
 
 ただし、本番パイプラインでLLMによるスキーマ自動修復を運用する際は、悪意ある外部入力データ（カラム名等に仕込まれたプロンプトインジェクション）や、ハルシネーションによる誤ったカラム結合（例：`user_id` と `order_id` の取り違え）に対する安全弁が不可欠である。したがって、LLMの出力はあらかじめ定義した許可リスト（ホワイトリスト化された型変換関数のみ）で厳格にバリデーションする。さらに、確信度（`confidence`）が閾値（0.95）未満の場合や金額・決済系の重要カラムが変化した場合は自動適用せず、退避テーブル（Dead Letter Table）へ生データを隔離した上でデータエンジニアへSlack通知するフォールバック処理を必ず組み込むこと。

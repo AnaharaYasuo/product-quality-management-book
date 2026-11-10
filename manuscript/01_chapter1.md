@@ -159,7 +159,10 @@ flowchart TD
 
 ```python
 # アンチパターン：AIエージェントによる「テストの骨抜き（報酬ハッキング）」の具体例
-from app.payment import process_payment
+def process_payment(amount: int) -> dict:
+    if amount <= 0:
+        raise ValueError("決済金額は正の整数でなければなりません")
+    return {"status": "ok", "amount": amount}
 
 
 def test_process_payment_autonomous_hacked():

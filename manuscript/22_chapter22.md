@@ -109,7 +109,8 @@ Tier 1の即死領域において、カバレッジ100%は「単にコード行�
 例えば、以下のような無意味なテストであってもカバレッジは100%を記録してしまう：
 
 ```python
-from app.billing import process_payment
+def process_payment(amount: int, user_id: int) -> dict:
+    return {"user_id": user_id, "charged": amount, "status": "SUCCESS"}
 
 
 def test_payment_processing():
