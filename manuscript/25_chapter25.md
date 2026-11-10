@@ -70,54 +70,50 @@ flowchart TD
 
 ISO/IEC 25010のシステム品質モデル（機能適合性、信頼性、保守性など）が「製品そのものの内部・外部特性」を規定するのに対し、ISO/IEC 25019は「特定の利用状況下で特定のユーザーが特定の目標を達成する際の品質」を定義します。
 
-### ISO/IEC 25019 の4大特性と測定メトリクス
+### ISO/IEC 25019:2023 の3大トップレベル特性と測定メトリクス
+
+旧規格（ISO/IEC 25010:2011）では、利用時の品質は「有効性・効率性・満足性・リスク回避性・コンテキスト網羅性」の5特性で構成されていました。しかし **ISO/IEC 25019:2023** では、**「便益性（Beneficialness）」「リスク回避性（Freedom from Risk）」「受容性（Acceptability）」の3大トップレベル特性**へと体系的に再編されました。旧来の有効性・効率性・満足度は便益性配下の「使用性（Usability）」へ統合され、旧コンテキスト網羅性は前提条件として特性から除外されています。
 
 ```mermaid
 classDiagram
     class QualityInUse {
         +ISO_IEC_25019_2023
     }
-    class Effectiveness {
-        +有効性
-        +目標達成率（Task Completion Rate）
-        +タスクエラー率（Error Frequency）
-    }
-    class Efficiency {
-        +効率性
-        +タスク完了時間（Time on Task）
-        +認知負荷・メンタルエフォート
-    }
-    class Satisfaction {
-        +満足度
-        +有用性感（Perceived Usefulness）
-        +信頼感（Trust & Safety）
-        +快適性（Comfort）
+    class Beneficialness {
+        +1. 便益性 (Beneficialness)
+        +使用性 (Usability: 有効性・効率性・満足度)
+        +アクセシビリティ (Accessibility)
+        +適合性 (Suitability)
     }
     class FreedomFromRisk {
-        +リスク回避性
-        +経済的リスク（Financial Risk）
-        +健康・安全リスク（Safety Risk）
-        +環境・法規制リスク（Compliance Risk）
+        +2. リスク回避性 (Freedom from Risk)
+        +経済的リスク回避 (Economic Risk)
+        +健康・人命リスク回避 (Health & Human Life Risk)
+        +環境・社会的リスク回避 (Environmental & Societal Risk)
+    }
+    class Acceptability {
+        +3. 受容性 (Acceptability)
+        +体験価値 (Experience)
+        +信頼性・安心感 (Trustworthiness)
+        +規範・倫理適合性 (Compliance)
     }
 
-    QualityInUse *-- Effectiveness
-    QualityInUse *-- Efficiency
-    QualityInUse *-- Satisfaction
+    QualityInUse *-- Beneficialness
     QualityInUse *-- FreedomFromRisk
+    QualityInUse *-- Acceptability
 ```
 
-1. **有効性（Effectiveness）**:
-   ユーザーが意図したタスクを正確かつ完全に達成できる度合い。
-   - *測定メトリクス*: 目標達成率（タスク完了数 ÷ 開始数）、クリティカルエラー発生率。
-2. **効率性（Efficiency）**:
-   ユーザーが目標を達成する際に消費する資源（時間、労力、認知的負荷）の妥当性。
-   - *測定メトリクス*: 平均タスク所要時間、無駄な画面遷移数、AI支援による入力短縮率。
-3. **満足度（Satisfaction）**:
-   プロダクトを利用する過程および結果に対して、ユーザーが抱く実質的な充足感や信頼性。
-   - *測定メトリクス*: CSAT（顧客満足度調査）、SUS（システムユーザビリティスケール）、NPS（正味推奨者スコア）。
-4. **リスク回避性（Freedom from Risk）**:
-   利用によってユーザーや組織の経済的状態、人間関係、法的立場に予期せぬ損害を与えない度合い。
-   - *測定メトリクス*: 誤操作による財務損失発生件数、プライバシー漏洩ヒヤリハット件数。
+1. **便益性（Beneficialness）と使用性（Usability：有効性・効率性・満足度）**:
+   ユーザーが意図した目標を正確・迅速・快適に達成でき、あらゆる利用者に便益をもたらす度合い。副特性として **使用性（Usability：ISO 9241-11に基づく有効性［Effectiveness］・効率性［Efficiency］・満足度［Satisfaction］）**、**アクセシビリティ（Accessibility）**、**適合性（Suitability）** を包含する。
+   - *有効性メトリクス*: 目標達成率（タスク完了数 ÷ 開始数）、クリティカルエラー発生率。
+   - *効率性メトリクス*: 平均タスク所要時間（Time on Task）、無駄な画面遷移数、AI支援による入力短縮率。
+   - *満足度・適合性メトリクス*: CSAT（顧客満足度調査）、SUS（システムユーザビリティスケール）、機能採用率（Adoption Rate）。
+2. **リスク回避性（Freedom from Risk）**:
+   システムの利用によってユーザーや組織の経済的状態、健康・人命、環境および社会に予期せぬ損害を与えない度合い。
+   - *測定メトリクス*: 誤操作やAIハルシネーションによる財務損失発生件数、安全・プライバシー侵害ヒヤリハット件数。
+3. **受容性（Acceptability）**:
+   プロダクトの利用体験（Experience）、信頼感（Trustworthiness）、社会的・法規的規範への適合（Compliance）を通じて、ユーザーや社会から継続的に受け入れられる度合い。
+   - *測定メトリクス*: NPS（正味推奨者スコア）、AI提案に対するユーザーの信頼率（採択率 vs 拒絶率）、継続利用率（Retention Rate）。
 
 ---
 
@@ -208,8 +204,6 @@ flowchart LR
 
 ```python
 # tools/audit_product_validation.py
-import json
-import math
 from dataclasses import dataclass
 from typing import List, Dict, Any
 

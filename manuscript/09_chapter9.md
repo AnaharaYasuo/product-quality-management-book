@@ -97,6 +97,9 @@ flowchart LR
 
 ```python
 # 悪い例：カバレッジ100%だが何も検証していないテスト
+from app.pricing import calculate_discount
+
+
 def test_calculate_discount():
     # 関数を呼ぶだけでアサーションがない
     calculate_discount(price=1000, user_type="VIP")
@@ -296,7 +299,6 @@ Metaが採用した3重フィルターは、以下の段階的ゲートウェイ
 import subprocess
 import json
 import sys
-import os
 
 def run_cmd(cmd):
     p = subprocess.run(cmd, shell=True, capture_output=True, text=True)

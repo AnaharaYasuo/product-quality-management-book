@@ -31,14 +31,14 @@ jobs:
         run: |
           npm install -g markdownlint-cli textlint textlint-rule-preset-ja-technical-writing textlint-rule-prh
           python -m pip install --upgrade pip
-          pip install pyyaml playwright
+          pip install pyyaml playwright ruff
           playwright install --with-deps chromium
 
       - name: Run Markdownlint
         run: |
           markdownlint "manuscript/*.md" --config ".markdownlint.yaml" --ignore "manuscript/style.css"
 
-      - name: Run All Deterministic Quality Gates (Linter, Terminology, Embedded Code AST, DoD, Mermaid SVG)
+      - name: Run All Deterministic Quality Gates (Linter, Terminology, Embedded Code AST, DoD, Mermaid SVG, RAG & Ruff)
         run: |
           python tools/run_all_gates.py
 

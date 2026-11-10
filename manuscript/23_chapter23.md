@@ -164,7 +164,8 @@ def audit_test_file(file_path):
 
 def audit_semantic_mock_abuse_with_llm(test_code: str, api_key: str) -> dict:
     """ASTでは見抜けない『assert True』や『モック自身が返した固定値をそのままassertするだけの意味のないテスト』をLLMでセマンティック摘発"""
-    import json, urllib.request
+    import json
+    import urllib.request
     prompt = (
         "以下のテストコードを精査し、グッドハートの法則による『形骸化ハック』がないかJSONで判定してください。\n"
         "- 摘発対象1: テスト対象関数自体をモック化し、モックの戻り値をそのまま assert しているトートロジー（同語反復）\n"
