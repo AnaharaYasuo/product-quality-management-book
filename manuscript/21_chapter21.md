@@ -197,6 +197,14 @@ def generate_roadmap(team_context, current_challenges):
             return res["candidates"][0]["content"]["parts"][0]["text"]
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, KeyError) as e:
         return f"[WARN] AI API呼び出しエラー（レートリミットまたはタイムアウト: {e}）。標準テンプレートからMonth 1（PRテンプレート・Linter導入）を開始してください。"
+
+
+if __name__ == "__main__":
+    roadmap = generate_roadmap(
+        team_context="バックエンド8名・QA専任なし（Python / FastAPI / React）",
+        current_challenges="PRが巨大化しレビュー待ちが平均3日滞留、リリース後に回帰バグが月2件発生",
+    )
+    print(roadmap)
 ```
 
 ---

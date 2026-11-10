@@ -156,6 +156,13 @@ def provide_quality_coaching(pr_title, pr_diff, domain_rules):
         # APIタイムアウトやレスポンス形式異常時にCIジョブをクラッシュさせないための堅牢な例外ハンドリング
         print(f"[WARN] AI Quality Coach API call skipped due to error: {e}")
         return "AI Quality Coachは一時的にスキップされました。標準のテスト観点チェックリストを確認してください。"
+
+
+if __name__ == "__main__":
+    pr_title = os.environ.get("PR_TITLE", "feat: クーポン割引計算ロジックの追加")
+    pr_diff = os.environ.get("PR_DIFF", "+ def apply_coupon(total, discount): return max(0, total - discount)")
+    domain_rules = "決済金額は0円未満になってはならず、同一クーポンの二重適用を排他制御すること。"
+    print(provide_quality_coaching(pr_title, pr_diff, domain_rules))
 ```
 
 ---

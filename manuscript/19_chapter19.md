@@ -96,9 +96,11 @@ import subprocess
 import sys
 
 def check_test_tampering():
-    # mainブランチとの差分ファイル一覧を取得
+    # mainブランチとの差分ファイル一覧を取得（浅いクローン時はHEAD~1へフォールバック）
     cmd = ["git", "diff", "--name-status", "origin/main...HEAD"]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        result = subprocess.run(["git", "diff", "--name-status", "HEAD~1...HEAD"], capture_output=True, text=True, check=False)
 
     modified_tests = []
     deleted_tests = []
@@ -229,6 +231,14 @@ def audit_agent_pr(task_spec: str, git_diff: str) -> dict:
     with urllib.request.urlopen(req, timeout=20) as resp:
         res = json.loads(resp.read().decode("utf-8"))
         return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
+
+
+if __name__ == "__main__":
+    verdict = audit_agent_pr(
+        task_spec="TASK-402: ユーザー検索APIのクエリ最適化（既存テストの改変禁止）",
+        git_diff="M src/services/user_service.py",
+    )
+    print(f"Auditor Agent Verdict: {verdict}")
 ```
 
 なお、マルチエージェント監査を実運用する際は、LLMのAPIコストとレイテンシを抑える工夫が欠かせない。具体的には、決定論的CI（コンパイル・単体テスト・Linter・`verify_agent_test_integrity.py`）がすべてGreenになった後にのみ、非同期ジョブとしてAuditor Agentを起動する（Short-Circuit Evaluation）構成とする。

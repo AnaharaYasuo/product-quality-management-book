@@ -207,6 +207,15 @@ def repair_broken_locator(broken_locator, page_dom_snippet, target_intent):
         res = json.loads(resp.read().decode("utf-8"))
         text = res["candidates"][0]["content"]["parts"][0]["text"]
         return json.loads(text)
+
+
+if __name__ == "__main__":
+    healed = repair_broken_locator(
+        broken_locator="page.locator('.btn-checkout-legacy')",
+        page_dom_snippet='<button role="button" aria-label="注文を確定する">注文を確定する</button>',
+        target_intent="注文確定ボタンのクリック",
+    )
+    print(f"Healed locator result: {healed}")
 ```
 
 ※大規模SPAにおけるDOM肥大化とトークン上限への対策：現代のReactやNext.js等で構築された画面の `page.content()`（HTML全文）は容易に数十万文字に達し、そのままプロンプトに投入するとコンテキスト長の制限超過やAPIコストの高騰、推論精度の低下を招く。実務で `page_dom_snippet` を抽出する際は、`<script>` や `<style>`、`<svg>`、Base64画像、冗長なCSSクラス属性をBeautifulSoup等で事前にストリップ（軽量化）します。あるいはPlaywrightの `page.locator('main').ariaSnapshot()`（ARIAツリーのスナップショット）を取得して渡すことで、トークン量を95%以上削減しつつ `getByRole` の推論精度を劇的に高められます。
