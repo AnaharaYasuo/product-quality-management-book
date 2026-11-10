@@ -6,6 +6,7 @@ tools/run_all_gates.py
 1. 日本語スタイル・コードフェンス整合性・技術用語契約・埋め込みコードAST検査 (tools/lint_manuscript.py)
 2. 商業技術書DoD・章番号連番整合性監査 (tools/audit_book_dod.py)
 3. Mermaid全75図のAST構文パース＆SVG描画検証 (tools/validate_mermaid.py)
+4. 一次情報正解知識ベース(RAG)整合性・埋め込みPython実ツール静的解析(Ruff) (tools/audit_technical_facts.py)
 """
 
 import subprocess
@@ -23,6 +24,7 @@ GATES = [
     ("Gate 1: Manuscript Style, Terminology Contract & Embedded Code AST", [sys.executable, "tools/lint_manuscript.py"]),
     ("Gate 2: Commercial DoD & Chapter/Section Numbering Audit", [sys.executable, "tools/audit_book_dod.py"]),
     ("Gate 3: Mermaid Diagram AST & Real-Browser SVG Validation", [sys.executable, "tools/validate_mermaid.py"]),
+    ("Gate 4: Primary-Source Knowledge Base (RAG) & Ruff Embedded Code Audit", [sys.executable, "tools/audit_technical_facts.py"]),
 ]
 
 

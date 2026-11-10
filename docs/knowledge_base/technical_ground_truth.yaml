@@ -1,0 +1,122 @@
+# ==============================================================================
+# 書籍『プロダクト品質管理の実践ガイド』一次情報・正解知識ベース (RAG Ground Truth)
+# ==============================================================================
+# 本ファイルは、国際規格（ISO/IEC, W3C, OpenSSF, ISTQB）および一次統計レポート（DORA）の
+# 公式仕様を構造化した「決定論的リファレンス知識ベース」である。
+# 1. `tools/audit_technical_facts.py` による決定論的ファクト検証（違反パターンの遮断）
+# 2. LLMプリンシパルエンジニア技術監査（RAGグラウンディング）の正解コンテキスト注入
+# の双方で単一の信頼できる情報源（Single Source of Truth）として参照される。
+
+standards:
+  iso_iec_25010_2023:
+    official_name: "ISO/IEC 25010:2023 (Systems and software engineering — SQuaRE — Product quality model)"
+    revision_notes:
+      - "2011年版の8特性から9特性へ改訂（2023年11月発行）。"
+      - "Usability（使用性）が Interaction capability（相互作用性）へ改称・拡張（副特性に Inclusivity, User engagement, Self-descriptiveness 等が追加）。"
+      - "Portability（移植性）が Flexibility（柔軟性）へ改称・拡張（副特性に Scalability が正式追加）。"
+      - "Safety（安全性）が9つ目のトップレベル特性として新設（副特性: Operational constraints, Risk identification, Fail-safe, Hazard warning, Safe integration）。"
+    characteristics_9:
+      - "Functional suitability (機能適合性)"
+      - "Performance efficiency (性能効率性)"
+      - "Compatibility (互換性)"
+      - "Interaction capability (相互作用性)"
+      - "Reliability (信頼性)"
+      - "Security (セキュリティ)"
+      - "Maintainability (保守性)"
+      - "Flexibility (柔軟性)"
+      - "Safety (安全性)"
+
+  iso_iec_25019_2023:
+    official_name: "ISO/IEC 25019:2023 (Systems and software engineering — SQuaRE — Quality-in-use model)"
+    revision_notes:
+      - "旧 ISO/IEC 25010:2011 内の利用時品質モデル（5特性: 有効性・効率性・満足性・リスク回避性・コンテキスト網羅性）を置き換える独立規格として2023年11月に発行。"
+      - "トップレベル特性は『Beneficialness（便益性／有益性）』『Freedom from risk（リスク回避性）』『Acceptability（受容性）』の3大特性に再編された。"
+      - "旧規格の『有効性（Effectiveness）』『効率性（Efficiency）』『満足度（Satisfaction）』は廃止されたのではなく、Beneficialness 配下の副特性『Usability（使用性：ISO 9241-11準拠で有効性・効率性・満足度をもって目標達成できる度合い）』の構成要素として統合された。"
+      - "旧規格の『Context coverage（コンテキスト網羅性／利用状況網羅性）』は、利用状況が測定特性ではなく評価の前提条件であるとの理由から2023年版で特性から削除された。"
+    top_level_characteristics_3:
+      Beneficialness:
+        japanese: "便益性（有益性）"
+        subcharacteristics:
+          - "Usability (使用性: 有効性 Effectiveness / 効率性 Efficiency / 満足度 Satisfaction を内包)"
+          - "Accessibility (アクセシビリティ)"
+          - "Suitability (適合性)"
+      Freedom_from_risk:
+        japanese: "リスク回避性"
+        subcharacteristics:
+          - "Freedom from economic risk (経済的リスク回避性)"
+          - "Freedom from health risk (健康リスク回避性)"
+          - "Freedom from human life risk (人命リスク回避性)"
+          - "Freedom from environmental and societal risk (環境・社会的リスク回避性)"
+      Acceptability:
+        japanese: "受容性"
+        subcharacteristics:
+          - "Experience (体験性)"
+          - "Trustworthiness (信頼性・トラスト)"
+          - "Compliance (順守性)"
+
+  iso_iec_25012_and_dama:
+    official_name: "ISO/IEC 25012 (Data quality model) & DAMA-DMBOK Data Quality Dimensions"
+    distinction_notes:
+      - "ISO/IEC 25012 は『固有（Inherent）』および『システム依存（System-dependent）』の2視点・計15特性（Accuracy, Completeness, Consistency, Credibility, Currentness, Accessibility, Compliance, Confidentiality, Efficiency, Precision, Traceability, Understandability, Availability, Portability, Recoverability）を定義する国際規格である。"
+      - "一方、『完全性（Completeness）・正確性（Accuracy）・一貫性（Consistency）・適時性（Timeliness）・一意性（Uniqueness）・有効性（Validity）』の6大分類は DAMA-DMBOK 等の実務データマネジメントで広く使われる6大次元（Six Core Dimensions）であり、ISO/IEC 25012 そのものの6特性ではないため、両者を明確に区別して記述すること。"
+
+  wcag_2_2:
+    official_name: "W3C WCAG 2.2 (Web Content Accessibility Guidelines 2.2)"
+    key_criteria:
+      - "1.4.3 Contrast (Minimum) (Level AA): 通常テキスト 4.5:1 以上、大きなテキスト 3:1 以上"
+      - "2.4.11 Focus Not Obscured (Minimum) (Level AA): フォーカスされた要素がスティッキーヘッダー等で完全に隠れないこと"
+      - "2.5.8 Target Size (Minimum) (Level AA): ポインタ入力のターゲットサイズが最低 24x24 CSSピクセル以上（または同等のスペーシング確保）"
+
+  slsa_v1_0:
+    official_name: "SLSA v1.0 (Supply-chain Levels for Software Artifacts)"
+    key_notes:
+      - "SLSA v1.0 の Build Track は Level 0〜Level 3 の4段階であり、旧ドラフト（v0.1）に存在した Level 4 は v1.0 で削除・将来トラックへ分離された。"
+
+  dora_metrics:
+    official_name: "Google Cloud DORA (DevOps Research and Assessment) / Accelerate State of DevOps Reports"
+    key_notes:
+      - "エリートパフォーマーがローパフォーマーに対し『デプロイ頻度 973倍』『変更リードタイム 6,570倍高速』『MTTR 6,570倍迅速』『変更失敗率 1/3』を記録した統計値は、2021年の Accelerate State of DevOps Report における代表値である。"
+      - "2024年レポート（10周年レポート）では AI 導入のトレードオフ（生成量増大に対しバッチサイズ肥大化で安定性が低下するリスク等）やプラットフォームエンジニアリングが重点テーマとなっている。"
+
+  testing_and_security_terminology:
+    definitions:
+      SAST: "Static Application Security Testing（静的アプリケーションセキュリティテスト）。ソースコードやバイトコードを実行せずにセキュリティ脆弱性を検査する手法（Semgrep, SonarQube, CodeQL等）。単なる構文・スタイル検査（Linter）や汎用的な『静的検証』と混同してはならない。"
+      DAST: "Dynamic Application Security Testing（動的アプリケーションセキュリティテスト）。稼働中のアプリケーションに外部から疑似攻撃リクエストを送り脆弱性を検査する手法（OWASP ZAP, Nuclei等）。"
+      SCA: "Software Composition Analysis（ソフトウェアコンポジション解析）。OSS依存ライブラリやコンテナに含まれる既知の脆弱性（CVE）およびライセンスリスクを検査する手法（Trivy, Grype, Dependabot等）。"
+      Coverage: "コードカバレッジ（C0: 命令/行網羅, C1: 分岐網羅, MC/DC等）はテスト実行時の動的トレース（Coverage.py, Istanbul等）によって計測される動的メトリクスであり、静的解析ツールが計測するものではない。"
+
+# 決定論的ファクトチェッカーが原稿全体に対して強制する禁止・要修正ルール
+deterministic_fact_rules:
+  - id: "FACT-ISO25019-CONTEXT-COVERAGE"
+    pattern: "\\+コンテキスト網羅性 \\(Context Coverage\\)"
+    message: "ISO/IEC 25019:2023 では旧2011年版の『Context Coverage（コンテキスト網羅性）』は特性から削除され、3大特性（Beneficialness, Freedom from risk, Acceptability）に再編されています。"
+  - id: "FACT-ISO25019-OLD-4-TRAITS-HEADING"
+    pattern: "ISO/IEC 25019\\s*の4大特性"
+    message: "ISO/IEC 25019:2023 のトップレベル特性は4大特性ではなく3大特性（便益性 Beneficialness、リスク回避性 Freedom from risk、受容性 Acceptability）です。"
+  - id: "FACT-ISO25012-DAMA-CONFUSION"
+    pattern: "データ品質の6大特性（ISO 25012）"
+    message: "ISO/IEC 25012 は固有・システム依存の15特性モデルであり、6大特性（完全性・正確性・一貫性・適時性・一意性・有効性）は DAMA-DMBOK 等の実務6大次元です。両者を混同しない表記に修正してください。"
+  - id: "FACT-SLSA-LEVEL4"
+    pattern: "SLSA\\s*Level\\s*4"
+    message: "SLSA v1.0 において Build Track は Level 0〜3 であり、旧 v0.1 の Level 4 は廃止されています。"
+
+# 特定章における必須一次情報キーワード契約（Positive Ground-Truth Assertions）
+required_fact_assertions:
+  - id: "REQ-CH01-ISO25019-2023-3TRAITS"
+    file: "01_chapter1.md"
+    must_contain:
+      - "Beneficialness"
+      - "Acceptability"
+    message: "第1章の ISO/IEC 25019:2023 解説には、2023年改訂の3大トップレベル特性（Beneficialness / Freedom from Risk / Acceptability）を明記してください。"
+  - id: "REQ-CH25-ISO25019-2023-3TRAITS"
+    file: "25_chapter25.md"
+    must_contain:
+      - "Beneficialness"
+      - "Acceptability"
+    message: "第25章の ISO/IEC 25019:2023 実践評価には、2023年改訂の3大トップレベル特性（Beneficialness / Freedom from Risk / Acceptability）を明記してください。"
+  - id: "REQ-CH17-ISO25012-15TRAITS"
+    file: "17_chapter17.md"
+    must_contain:
+      - "15特性"
+      - "DAMA-DMBOK"
+    message: "第17章のデータ品質節では、ISO/IEC 25012（15特性モデル）と DAMA-DMBOK（実務6大次元）の区分を明記してください。"
