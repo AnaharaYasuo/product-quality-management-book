@@ -234,14 +234,12 @@ flowchart LR
 
 ### 2. 実践：PythonによるGitリポジトリ健全性メトリクス収集スクリプト
 
-チームのローカルGitリポジトリからコミット履歴とブランチ寿命を自動抽出し、プロセスの不健全度を判定するアナライザースクリプトです。なお本スクリプトは、`pip install pandas` 等の環境構築コストを完全に排除しています。どんなCIランナーや制限された社内端末でもコピペ1つで即座に動かせる実用性を最優先し、あえてPython標準ライブラリ（`subprocess`, `datetime`, `json`）のみで完結する設計としました。
+チームのローカルGitリポジトリからコミット履歴とブランチ寿命を自動抽出し、プロセスの不健全度を判定するアナライザースクリプトです。なお本スクリプトは、`pip install pandas` 等の環境構築コストを完全に排除しています。どんなCIランナーや制限された社内端末でもコピペ1つで即座に動かせる実用性を最優先し、あえてPython標準ライブラリ（`subprocess`, `datetime`）のみで完結する設計としました。
 
 ```python
 # tools/diagnose_process_health.py
 import subprocess
 import datetime
-import sys
-import json
 
 def get_git_commit_stats(days=30):
     since_date = (datetime.datetime.now() - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
