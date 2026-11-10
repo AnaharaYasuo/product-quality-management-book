@@ -97,7 +97,8 @@ flowchart LR
 
 ```python
 # 悪い例：カバレッジ100%だが何も検証していないテスト
-from app.pricing import calculate_discount
+def calculate_discount(price: int, user_type: str) -> int:
+    return int(price * 0.8) if user_type == "VIP" else price
 
 
 def test_calculate_discount():

@@ -134,11 +134,26 @@ ATAMセッションを通じて、ビジネス優先度に基づくトレード�
 テスタビリティの低いコードと、テスタビリティを確保したコードの違いを具体例で示します。
 
 ```go
-// [アンチパターン] テスタビリティが破綻したコード（DBと現在時刻に直接依存）
-func PlaceOrder(userID int, amount int) error {
+package order
+
+import (
+    "context"
+    "database/sql"
+    "time"
+)
+
+type Order struct {
+    UserID    int
+    Amount    int
+    CreatedAt time.Time
+}
+
+var globalDB *sql.DB
+
+// [アンチパターン] テスタビリティが破綻したコード（グローバルDBと現在時刻に直接依存）
+func PlaceOrderLegacy(userID int, amount int) error {
     now := time.Now() // 非決定的な副作用
-    db := database.GetConnection() // グローバル接続への密結合
-    _, err := db.Exec("INSERT INTO orders (user_id, amount, created_at) VALUES (?, ?, ?)", userID, amount, now)
+    _, err := globalDB.Exec("INSERT INTO orders (user_id, amount, created_at) VALUES (?, ?, ?)", userID, amount, now)
     return err
 }
 
@@ -152,14 +167,14 @@ type TimeProvider interface {
 }
 
 type OrderService struct {
-    repo OrderRepository
+    repo  OrderRepository
     clock TimeProvider
 }
 
 func (s *OrderService) PlaceOrder(ctx context.Context, userID int, amount int) error {
     order := &Order{
-        UserID: userID,
-        Amount: amount,
+        UserID:    userID,
+        Amount:    amount,
         CreatedAt: s.clock.Now(),
     }
     return s.repo.SaveOrder(ctx, order)

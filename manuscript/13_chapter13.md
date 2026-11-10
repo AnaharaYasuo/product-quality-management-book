@@ -101,6 +101,15 @@ def compute_gini_coefficient(values):
     return cumulative_Diff / (n * sum(sorted_vals))
 
 def fetch_pull_requests(owner, repo, token):
+    if not token:
+        # GITHUB_TOKEN 未設定環境でもローカル動作確認できるようサンプルPRレビューデータを返却
+        sample_nodes = (
+            [{"reviews": {"nodes": [{"author": {"login": "tech-lead-A"}, "state": "APPROVED"}]}}] * 68
+            + [{"reviews": {"nodes": [{"author": {"login": "senior-dev-B"}, "state": "APPROVED"}]}}] * 25
+            + [{"reviews": {"nodes": [{"author": {"login": "member-C"}, "state": "APPROVED"}]}}] * 12
+        )
+        return {"data": {"repository": {"pullRequests": {"nodes": sample_nodes}}}}
+
     gql_query = """
     query($owner: String!, $repo: String!) {
       repository(owner: $owner, name: $repo) {
@@ -232,6 +241,17 @@ def generate_process_diagnosis(sprint_metrics):
     with urllib.request.urlopen(req, timeout=15) as resp:
         result = json.loads(resp.read().decode("utf-8"))
         return result["candidates"][0]["content"]["parts"][0]["text"]
+
+
+if __name__ == "__main__":
+    sample_metrics = {
+        "deployment_frequency": "2.1/week",
+        "lead_time_hours": 54.0,
+        "change_failure_rate": 0.14,
+        "first_review_wait_hours": 19.5,
+        "reviewer_gini": 0.533,
+    }
+    print(generate_process_diagnosis(sample_metrics))
 ```
 
 ---

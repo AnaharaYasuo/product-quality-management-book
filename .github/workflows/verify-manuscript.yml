@@ -31,7 +31,7 @@ jobs:
         run: |
           npm install -g markdownlint-cli textlint textlint-rule-preset-ja-technical-writing textlint-rule-prh
           python -m pip install --upgrade pip
-          pip install pyyaml playwright ruff
+          pip install pyyaml playwright ruff pytest pydantic hypothesis
           playwright install --with-deps chromium
 
       - name: Run Markdownlint
