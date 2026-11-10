@@ -277,8 +277,10 @@ import urllib.error
 import urllib.request
 
 def get_git_diff():
-    # mainブランチとの差分統計および変更ファイル名を取得
-    result = subprocess.run(['git', 'diff', '--name-status', 'origin/main...HEAD'], capture_output=True, text=True, check=True)
+    # mainブランチとの差分統計および変更ファイル名を取得（浅いクローン時はHEAD~1へフォールバック）
+    result = subprocess.run(['git', 'diff', '--name-status', 'origin/main...HEAD'], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        result = subprocess.run(['git', 'diff', '--name-status', 'HEAD~1...HEAD'], capture_output=True, text=True, check=False)
     return result.stdout
 
 def audit_consistency(pr_body, git_diff):

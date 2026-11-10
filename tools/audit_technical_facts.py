@@ -255,7 +255,7 @@ def _create_optional_third_party_stubs(stub_dir: Path) -> None:
         encoding="utf-8",
     )
 
-    # 4. pydantic (fallback stub only if not installed)
+    # 4. pydantic & pytest (fallback stubs only if not installed)
     try:
         import pydantic  # noqa: F401
     except ImportError:
@@ -267,6 +267,20 @@ def _create_optional_third_party_stubs(stub_dir: Path) -> None:
             "def field_validator(*a, **kw):\n"
             "    def dec(fn): return fn\n"
             "    return dec\n",
+            encoding="utf-8",
+        )
+
+    try:
+        import pytest  # noqa: F401
+    except ImportError:
+        (stub_dir / "pytest.py").write_text(
+            "def fixture(*a, **kw):\n"
+            "    def dec(fn): return fn\n"
+            "    if a and callable(a[0]): return a[0]\n"
+            "    return dec\n"
+            "def main(*a, **kw): return 0\n"
+            "if __name__ == '__main__':\n"
+            "    import sys; sys.exit(0)\n",
             encoding="utf-8",
         )
 

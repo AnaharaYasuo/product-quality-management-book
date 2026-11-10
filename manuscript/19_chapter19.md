@@ -96,9 +96,11 @@ import subprocess
 import sys
 
 def check_test_tampering():
-    # mainブランチとの差分ファイル一覧を取得
+    # mainブランチとの差分ファイル一覧を取得（浅いクローン時はHEAD~1へフォールバック）
     cmd = ["git", "diff", "--name-status", "origin/main...HEAD"]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        result = subprocess.run(["git", "diff", "--name-status", "HEAD~1...HEAD"], capture_output=True, text=True, check=False)
 
     modified_tests = []
     deleted_tests = []

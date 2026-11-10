@@ -211,11 +211,14 @@ def select_optimal_tests(changed_files: list[str]) -> list[str]:
 
 if __name__ == "__main__":
     changed = get_changed_files()
-    target_tests = select_optimal_tests(changed)
+    target_tests = [t for t in select_optimal_tests(changed) if Path(t).exists()]
+    if not target_tests:
+        print("ℹ️ 実行対象のテストファイルが存在しないためスキップします。")
+        sys.exit(0)
     print(f"🎯 選別された実行対象テスト: {target_tests}")
     # OSのコマンドライン引数長上限（ARG_MAX）超過や、対象テストが0件（Exit Code 5: No tests collected）の
     # エッジケースでも安全にハンドリングできるよう実行を制御する
-    rc = subprocess.call(["pytest", *target_tests[:200]])
+    rc = subprocess.call([sys.executable, "-m", "pytest", *target_tests[:200]])
     sys.exit(0 if rc in (0, 5) else rc)
 ```
 
