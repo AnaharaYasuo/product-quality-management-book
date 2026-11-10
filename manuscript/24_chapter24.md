@@ -167,8 +167,8 @@ import subprocess
 import sys
 
 def run_step(step_name, command):
-    print(f"=== [Anchor Check] {step_name} ===") 
-    res = subprocess.run(command, shell=True)
+    print(f"=== [Anchor Check] {step_name} ===")
+    res = subprocess.run(command, shell=True, check=False)
     if res.returncode != 0:
         print(f"❌ 決定論的アンカー違反: {step_name} が失敗しました (Exit Code: {res.returncode})")
         sys.exit(1)
@@ -181,8 +181,8 @@ def main():
     # 2. 契約・機能テストアンカー (pytest with Testcontainers)
     run_step("機能テスト & DB契約検証", "pytest tests/unit tests/integration")
 
-    # 3. 欠陥検知力アンカー (Mutation Testing)
-    run_step("変異テスト殺害率検証 (mutmut)", "mutmut run --paths-to-mutate src/core/")
+    # 3. 欠陥検知力アンカー (Mutation Testing: mutmut 2.x系)
+    run_step("変異テスト殺害率検証 (mutmut)", "mutmut run --paths-to-mutate=src/core/")
 
     print("🎉 全ての決定論的アンカーを通過しました。AIコードの安全性が物理的に確証されました。")
 
@@ -240,4 +240,4 @@ AI技術がどれほど指数関数的に進化しようとも、計算機科学
 - **フィルターの規律**: Meta TestGen-LLMが示したように、冷酷な多重フィルターこそがAIの実用性を生む。
 - **人間の高次化**: 人間はコードの写経を卒業し、アンカーの設計者としてシステムを統制する。
 
-さあ、旅はついに最後の到達点へと至る。第1章から本章まで、私たちは「すべての成果物に対する確証」「プロセスガードレール」「AIプロダクト品質」「全員品質」という壮大な品質エンジニアリングの体系を築き上げてきた。最終章（第25章）では、本書の全思想を統合し、AI時代を生きるエンジニアと組織に向けた「ソフトウェア品質の未来とエンジニアの矜持」を総括する。
+さあ、旅はついに最後の到達点へと至る。第1章から本章まで、私たちは「仕様通りに正しく・安全に作るための確証（Verification）」の体系を築き上げてきた。しかし、どれほどバグがゼロで決定論的アンカーを完璧にパスしたプロダクトであっても、それが顧客の課題を解決せず誰にも使われなければ「完璧なゴミ」となって死を迎える。最終章（第25章）では、プロダクトの死を回避する「妥当性確認（Validation：ISO/IEC 25019:2023 利用時の品質）」と「不要な機能を捨てる品質」を統合し、本書の全思想を完結させる。

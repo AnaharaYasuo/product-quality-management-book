@@ -1,4 +1,4 @@
-# 第10章 開発プロセスの類型学（Typology）と固有の品質リスク
+# 第10章：開発プロセスの類型学（Typology）と固有の品質リスク
 
 ソフトウェアエンジニアリングの現場において、最も不毛かつ危険な誤解の1つが「アジャイルを導入すれば品質が上がる」、あるいは逆に「ウォーターフォールで厳格に管理すれば完璧な品質が手に入る」というプロセス単一至上主義です。
 どのような開発モデルであっても、銀の弾丸（Silver Bullet）は存在しません。ウォーターフォール、スクラム、カンバン、Shape Up、トランクベース開発、非同期オープンソース型開発——チームが採用する開発プロセスの「構造とリズム」によって、品質上の急所（ボトルネック）と潜む欠陥リスクは180度異なります。
@@ -244,8 +244,8 @@ import datetime
 def get_git_commit_stats(days=30):
     since_date = (datetime.datetime.now() - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
     cmd = f'git log --since="{since_date}" --pretty=format:"%h|%an|%ad|%s" --date=iso'
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding="utf-8")
-    
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding="utf-8", check=False)
+
     lines = result.stdout.strip().split("\n")
     if not lines or lines == ['']:
         return []
@@ -272,19 +272,20 @@ def analyze_friday_commit_bias(commits):
     for c in commits:
         try:
             dt = datetime.datetime.fromisoformat(c["date"].strip())
-            if dt.weekday() == 4: # 金曜日
+            if dt.weekday() == 4:  # 金曜日
                 friday_commits += 1
-            elif dt.weekday() in (5, 6): # 土日
+            elif dt.weekday() in (5, 6):  # 土日
                 weekend_commits += 1
-        except Exception:
-            pass
+        except ValueError:
+            continue
 
     return (friday_commits / total) * 100, (weekend_commits / total) * 100
+
 
 if __name__ == "__main__":
     commits = get_git_commit_stats(30)
     print(f"直近30日間の総コミット数: {len(commits)}")
-    
+
     friday_pct, weekend_pct = analyze_friday_commit_bias(commits)
     print(f"金曜日のコミット集中率: {friday_pct:.1f}%")
     print(f"週末コミット率: {weekend_pct:.1f}%")

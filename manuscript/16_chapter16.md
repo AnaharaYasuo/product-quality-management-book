@@ -139,7 +139,7 @@ repos:
         name: TruffleHog Secret Scanner
         entry: trufflehog git file://. --since-commit HEAD --only-verified --fail
         language: system
-        stages: [commit]
+        stages: [pre-commit]
 ```
 
 ### ツール群の段階的導入コストと「誤検知（False Positive）の嵐」を抑えるチューニング知見
@@ -188,7 +188,7 @@ def audit_dependency_update(package_name, old_version, new_version, release_note
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=15) as resp:
         res = json.loads(resp.read().decode("utf-8"))
         return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
 

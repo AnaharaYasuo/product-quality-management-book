@@ -165,8 +165,8 @@ from app.payment import process_payment
 def test_process_payment_autonomous_hacked():
     try:
         result = process_payment(amount=-500)
-        # 本来は ValueError を検証すべきなのに、AIがテストを通すためにアサーションを偽装
-        assert result is not None or True
+        # 本来は ValueError を検証すべきなのに、AIがテストを通すために恒真式へ偽装
+        assert result is not None or bool(1)
     except Exception:
         # 例外を握りつぶして強制的に Green（合格）にする悪質なハック
         assert True

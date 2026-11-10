@@ -1,6 +1,6 @@
+import glob
 import re
 import sys
-import glob
 from pathlib import Path
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -10,17 +10,46 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
+# 各章の正規テーマキーワード定義（次章予告や他章参照が旧構成の草案と食い違っていないかを決定論的に検査）
+CHAPTER_TOPIC_ANCHORS = {
+    1: ["確証", "Assurance", "DORA", "ISO/IEC 25010"],
+    2: ["シフトレフト", "二大成果物", "Verification", "Validation"],
+    3: ["企画", "要求", "PRD", "プレモーテム"],
+    4: ["UI", "UX", "デザイン", "WCAG"],
+    5: ["機能仕様", "受入基準", "Three Amigos", "Example Mapping", "Gherkin"],
+    6: ["アーキテクチャ", "設計", "ADR", "OpenAPI", "C4"],
+    7: ["ソースコード", "静的解析", "SAST", "AutoCommenter"],
+    8: ["インフラ", "CI/CD", "IaC", "Terraform", "Checkov"],
+    9: ["テスト資産", "ミューテーション", "Mutation", "Flaky", "TestGen"],
+    10: ["類型", "ウォーターフォール", "スクラム", "カンバン", "トランクベース"],
+    11: ["仕様化", "DoD", "DoR", "テンプレート"],
+    12: ["静的検証", "ガードレール", "commitlint", "Danger", "Gatekeeper"],
+    13: ["動的検証", "DORA", "フローメトリクス", "ボトルネック"],
+    14: ["自動テスト", "Testcontainers", "Playwright", "自己修復", "E2E"],
+    15: ["シフトライト", "カナリア", "SLO", "エラーバジェット", "ポストモーテム"],
+    16: ["サプライチェーン", "SBOM", "SLSA", "Cosign", "TruffleHog", "DevSecOps"],
+    17: ["データ品質", "機械学習", "Great Expectations", "ドリフト", "ISO/IEC 25012"],
+    18: ["LLM", "RAG", "Ragas", "LLM-as-a-Judge", "レッドチーミング"],
+    19: ["エージェント", "AI-native", "サンドボックス", "改ざん"],
+    20: ["全員品質", "Whole-Team", "イネーブラー", "品質コーチ"],
+    21: ["ロードマップ", "成熟度", "ROI", "チェンジマネジメント"],
+    22: ["リスクベース", "CoQ", "品質コスト", "Tier"],
+    23: ["Goodhart", "グッドハート", "メトリクスハック", "ペアメトリクス", "Paved Path"],
+    24: ["決定論的アンカー", "Deterministic", "共謀", "アンカー"],
+    25: ["妥当性確認", "Validation", "25019", "ゾンビ機能", "機能を捨てる"],
+}
+
 
 def check_structure(file_path):
     issues = []
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         content = f.read()
 
     filename = Path(file_path).name
     if filename.startswith("00_") or filename.startswith("99_"):
         return issues
 
-    # 章番号整合性チェック（例: 05_chapter5.md -> H1は「第5章」、H2は「5.1, 5.2...」）
+    # 章番号整合性チェック（例: 05_chapter5.md -> H1は「# 第5章：...」、H2は「5.1, 5.2...」）
     ch_match = re.match(r"^(\d+)_chapter(\d+)\.md$", filename)
     if ch_match:
         ch_num = int(ch_match.group(2))
@@ -42,8 +71,12 @@ def check_structure(file_path):
                 continue
 
             h1 = re.match(r"^#\s+(.+)$", line)
-            if h1 and f"第{ch_num}章" not in h1.group(1):
-                issues.append(f"[DoD-Numbering] Line {idx}: H1見出しに「第{ch_num}章」が含まれていません: {h1.group(1)}")
+            if h1:
+                h1_text = h1.group(1)
+                if not h1_text.startswith(f"第{ch_num}章："):
+                    issues.append(
+                        f"[DoD-Numbering] Line {idx}: H1見出しは「# 第{ch_num}章：タイトル」（全角コロン付き）に統一してください: {h1_text}"
+                    )
 
             h2 = re.match(r"^##\s+(\d+)\.(\d+)\s+", line)
             if h2:
@@ -51,6 +84,21 @@ def check_structure(file_path):
                 if c_no != ch_num:
                     issues.append(f"[DoD-Numbering] Line {idx}: H2章番号が不一致です ({c_no}.{s_no} / 期待: {ch_num}.x)")
                 sec_nums.append((idx, s_no))
+
+            # 次章・最終章への接続（Cross-Reference）整合性チェック
+            next_ref = re.search(r"(?:次章|最終章)（第(\d+)章）", line)
+            if next_ref:
+                ref_ch = int(next_ref.group(1))
+                if ref_ch != ch_num + 1:
+                    issues.append(
+                        f"[DoD-CrossRef] Line {idx}: 次章番号が不正です（第{ch_num}章の次章として第{ref_ch}章が参照されています）"
+                    )
+                else:
+                    expected_keywords = CHAPTER_TOPIC_ANCHORS.get(ref_ch, [])
+                    if expected_keywords and not any(kw.lower() in line.lower() for kw in expected_keywords):
+                        issues.append(
+                            f"[DoD-CrossRef] Line {idx}: 次章（第{ref_ch}章）の予告内容が実際の第{ref_ch}章のテーマ（{expected_keywords}）と一致していません: {line.strip()}"
+                        )
 
         for i in range(len(sec_nums) - 1):
             if sec_nums[i + 1][1] != sec_nums[i][1] + 1:
@@ -90,7 +138,7 @@ def check_structure(file_path):
 
 def main():
     target_files = sorted(glob.glob("manuscript/*.md"))
-    print("=== Commercial Technical Book DoD Validator ===")
+    print("=== Commercial Technical Book DoD & Cross-Reference Validator ===")
     print(f"Auditing {len(target_files)} manuscript files...\n")
 
     has_errors = False
@@ -107,7 +155,7 @@ def main():
         print("FAILED: Incomplete or non-compliant chapters detected against Commercial Book DoD.")
         sys.exit(1)
     else:
-        print("PASSED: All 25 chapters meet Commercial Book DoD & structural numbering standards.")
+        print("PASSED: All 25 chapters meet Commercial Book DoD, H1 format, and Cross-Reference standards.")
         sys.exit(0)
 
 
