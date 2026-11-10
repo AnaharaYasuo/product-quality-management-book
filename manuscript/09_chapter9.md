@@ -1,4 +1,4 @@
-# 第9章 テスト資産自体の品質検証（Meta TestGen-LLMの実践）
+# 第9章：テスト資産自体の品質検証（Meta TestGen-LLMの実践）
 
 多くの開発組織において、「テストコードが存在し、CIでグリーン（成功）になっていること」は無条件の安心材料として受け入れられています。しかし、ソフトウェア工学の現実はそれほど単純ではありません。
 「そのテストコード自体の品質は、いったい誰が保証しているのか？」
@@ -185,7 +185,7 @@ $$\text{Mutation Score} = \frac{\text{Killed Mutants}}{\text{Total Mutants}} \ti
 }
 ```
 
-Pythonプロジェクト（pytest環境）で同様にミューテーションテストを実施する場合は、`mutmut` を用いて `pyproject.toml`（または `setup.cfg`）に以下のように設定し、CI上で差分またはコアドメインの変異スコアを検証します。
+Pythonプロジェクト（pytest環境）で同様にミューテーションテストを実施する場合は、`mutmut`（安定版の `mutmut>=2.4,<3.0` 系）を用いて `pyproject.toml` に設定を記述します。なお `mutmut 3.x` 系では設定キーや実行体系が異なるため、CIで `--paths-to-mutate` による差分指定を行う場合は `2.x` 系にバージョン固定することを推奨します。
 
 ```toml
 # pyproject.toml (Python mutmutの設定例)
@@ -301,7 +301,7 @@ import json
 import sys
 
 def run_cmd(cmd):
-    p = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    p = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=False)
     return p.returncode, p.stdout, p.stderr
 
 def get_baseline_coverage():
@@ -314,16 +314,16 @@ def run_meta_three_filters(candidate_test_file: str, base_coverage: float) -> bo
     print(f"\n[Meta TestGen Pipeline] テスト候補の検証開始: {candidate_test_file}")
 
     # 第1フィルター: ビルド/構文検証
-    code, out, err = run_cmd(f"python -m py_compile {candidate_test_file}")
+    code, _out, err = run_cmd(f"python -m py_compile {candidate_test_file}")
     if code != 0:
-        print("❌ Filter 1 (Build) Failed: 構文エラーまたはコンパイル失敗。")
+        print(f"❌ Filter 1 (Build) Failed: 構文エラーまたはコンパイル失敗: {err.strip()}")
         return False
     print("✅ Filter 1 (Build) Passed.")
 
     # 第2フィルター: 実行・リグレッション検証
     code, out, err = run_cmd(f"pytest {candidate_test_file}")
     if code != 0:
-        print("❌ Filter 2 (Execution) Failed: テスト実行が失敗しました。")
+        print(f"❌ Filter 2 (Execution) Failed: テスト実行が失敗しました:\n{out}{err}")
         return False
     print("✅ Filter 2 (Execution) Passed: 全テストがグリーン。")
 

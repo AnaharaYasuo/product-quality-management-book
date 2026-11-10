@@ -65,7 +65,7 @@ def postgres_container():
     with PostgresContainer("postgres:16-alpine") as postgres:
         yield postgres
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def db_engine(postgres_container):
     engine = sqlalchemy.create_engine(postgres_container.get_connection_url())
     # テーブル作成とマイグレーション
@@ -203,7 +203,7 @@ def repair_broken_locator(broken_locator, page_dom_snippet, target_intent):
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=15) as resp:
         res = json.loads(resp.read().decode("utf-8"))
         text = res["candidates"][0]["content"]["parts"][0]["text"]
         return json.loads(text)

@@ -1,4 +1,4 @@
-# 第7章 ソースコード・成果物の検証と多層監査
+# 第7章：ソースコード・成果物の検証と多層監査
 
 現代のソフトウェア開発において、ソースコードは開発者が一文字ずつキーボードで打ち込むものから、Copilot等の生成AIやLLMエージェントが大量に生成・提案するものへと急速に変容しつつあります。生成速度が10倍に加速した開発現場において、人間のコードレビューだけに頼る品質保証は完全に破綻をきたしています。
 レビュー担当者の疲弊（Reviewer Fatigue）、チェックの見落とし、スタイルや好みの議論によるPR（プルリクエスト）の長期滞留が日常化しています。さらに、AIがもたらす幻覚（Hallucination）やタイポスクワッティング攻撃への懸念も増大しています。これらに対処するためには、コードを「機械による静的解析・SAST」「AI確証パイプライン」「人間による本質的設計レビュー」の多層防壁で検証・監査するアーキテクチャが不可欠です。
@@ -367,7 +367,7 @@ def verify_pypi_package(package_name: str) -> bool:
     url = f"https://pypi.org/pypi/{package_name}/json"
     req = urllib.request.Request(url, headers={"User-Agent": "Book-QA-Verifier/1.0"})
     try:
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=10) as response:
             if response.status == 200:
                 data = json.loads(response.read().decode("utf-8"))
                 downloads_info = data.get("info", {})

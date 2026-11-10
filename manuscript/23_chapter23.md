@@ -144,7 +144,7 @@ import sys
 import glob
 
 def audit_test_file(file_path):
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         tree = ast.parse(f.read())
 
     hollow_tests = []
@@ -196,7 +196,7 @@ def main():
             all_hollow[test_file] = hollow
         elif enable_llm and api_key:
             # AST検査を通過したファイルに対し、CLIオプション --llm-audit 指定時はセマンティックモック偽装検査を実行
-            with open(test_file, "r", encoding="utf-8") as f:
+            with open(test_file, encoding="utf-8") as f:
                 verdict = audit_semantic_mock_abuse_with_llm(f.read(), api_key)
             if verdict.get("is_hollow_hack"):
                 semantic_hacks[test_file] = verdict.get("reason", "Semantic mock abuse detected")
@@ -263,4 +263,4 @@ if __name__ == "__main__":
 - **ペアメトリクスによる抑止**: 速度と品質、カバレッジと変異スコアを対置させ、ハックを無力化する。
 - **Paved Pathの思想**: 監視と罰則ではなく、最も楽で心地よい自動化レールを敷く。
 
-メトリクスの形骸化を防ぐ知恵を得た今、次に直面するのは「技術負債で腐敗しきった巨大なレガシーコードベース」である。テストが1行もなく、リファクタリングすれば本番が死ぬ恐怖のシステムに、私たちはどのようにメスを入れるべきか。次章（第24章）では、レガシーシステムに対する「品質リファクタリングと段階的モダナイゼーション」の実践的戦略へと歩を進める。
+人間の組織におけるメトリクスハックを防ぐ知恵を得た今、私たちが次に直面するのは「自律型AIエージェントによる報酬ハッキングとAI同士の共謀（Collusion）」という新たな脅威である。コードを書くAIとそれを審査するAIが互いに忖度し、見せかけの合格を量産する閉じたループをどう断ち切るか。次章（第24章）では、AI確証の限界を突破する「決定論的アンカー（Deterministic Anchors）」の技術へと歩を進める。

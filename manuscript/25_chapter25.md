@@ -205,7 +205,7 @@ flowchart LR
 ```python
 # tools/audit_product_validation.py
 from dataclasses import dataclass
-from typing import List, Dict, Any
+from typing import Any
 
 @dataclass
 class FeatureUsageMetric:
@@ -238,7 +238,7 @@ class ProductValidationAuditor:
         self.min_adoption_threshold = min_adoption_threshold
         self.min_completion_threshold = min_completion_threshold
 
-    def evaluate_features(self, metrics: List[FeatureUsageMetric]) -> Dict[str, Any]:
+    def evaluate_features(self, metrics: list[FeatureUsageMetric]) -> dict[str, Any]:
         results = {
             "healthy_features": [],
             "ux_friction_candidates": [],
@@ -268,7 +268,7 @@ class ProductValidationAuditor:
         return results
 
 
-def fetch_metrics_from_db_or_api(dsn: str) -> List[FeatureUsageMetric]:
+def fetch_metrics_from_db_or_api(dsn: str) -> list[FeatureUsageMetric]:
     """実運用でのデータ取得イメージ：DWH（BigQuery / PostgreSQL）やPostHog APIから直近30日の機能別集計を取得する接続アダプタ"""
     # [連携パターン1: BigQuery / PostgreSQL のイベントテーブルから直接SQL集計する場合]
     # query = """

@@ -124,7 +124,7 @@ def fetch_pull_requests(owner, repo, token):
         data=json.dumps({"query": gql_query, "variables": {"owner": owner, "repo": repo}}).encode("utf-8"),
         headers={"Authorization": f"bearer {token}", "Content-Type": "application/json"}
     )
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=15) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 def calculate_review_metrics(data):
@@ -229,7 +229,7 @@ def generate_process_diagnosis(sprint_metrics):
     model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=15) as resp:
         result = json.loads(resp.read().decode("utf-8"))
         return result["candidates"][0]["content"]["parts"][0]["text"]
 ```

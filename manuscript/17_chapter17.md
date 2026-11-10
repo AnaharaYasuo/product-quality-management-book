@@ -153,6 +153,7 @@ LLMを用いてスキーマの差分をセマンティックに推論し、自�
 # tools/ai_schema_healer.py
 import os
 import json
+import urllib.error
 import urllib.request
 
 def repair_broken_schema(target_schema, incoming_columns_sample):

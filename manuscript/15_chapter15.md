@@ -207,14 +207,14 @@ def generate_postmortem_draft(slack_chat_history, monitoring_alerts):
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=15) as resp:
         res = json.loads(resp.read().decode("utf-8"))
         return res["candidates"][0]["content"]["parts"][0]["text"]
 
 # ※LLM送信前のPIIサニタイズ前処理スニペット例（正規表現または Microsoft Presidio AnalyzerEngine の活用）
 # import re
 # sanitized_log = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[MASKED_EMAIL]', raw_slack_log)
-# sanitized_log = re.sub(r'(?i)(bearer|token|key)[\s:=]+["\']?[a-zA-Z0-9_\-\.]{16,}["\']?', '\1=[REDACTED_SECRET]', sanitized_log)
+# sanitized_log = re.sub(r'(?i)(bearer|token|key)[\s:=]+["\']?[a-zA-Z0-9_\-\.]{16,}["\']?', r'\1=[REDACTED_SECRET]', sanitized_log)
 ```
 
 ※本番運用時のセキュリティ（PIIマスキング）とトークン長対策：インシデント対応中のSlackログや監視アラートには、障害調査の過程で貼り付けられた顧客のメールアドレス、IPアドレス、注文ID、あるいはセッショントークン等の機密情報（PII）が含まれている危険性が高い。外部のLLM APIへ送信する前段には、必ず正規表現やMicrosoft Presidio等を用いたサニタイズ処理（メールアドレスを `[MASKED_EMAIL]`、APIキー形式を `[REDACTED_SECRET]` へ置換するフィルタ）を挟むこと。また、数時間に及ぶ長大なチャットログがコンテキスト長上限を超過しないよう、ボットの定型通知を除外し「アラート発火前後およびコマンド実行・意思決定メッセージ」を中心に時系列サンプリングして投入する設計が推奨される。

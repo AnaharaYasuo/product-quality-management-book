@@ -99,6 +99,18 @@ deterministic_fact_rules:
   - id: "FACT-SLSA-LEVEL4"
     pattern: "SLSA\\s*Level\\s*4"
     message: "SLSA v1.0 において Build Track は Level 0〜3 であり、旧 v0.1 の Level 4 は廃止されています。"
+  - id: "FACT-WCAG-OLD-2-1"
+    pattern: "WCAG\\s*2\\.1"
+    message: "本書では最新の W3C アクセシビリティ規格『WCAG 2.2』に統一しています（旧版 WCAG 2.1 の混在を排除してください）。"
+  - id: "FACT-GHA-UNPINNED-BRANCH"
+    pattern: "uses:\\s*[^\\s#]+@(?:master|main)\\b"
+    message: "第8章8.3節のサプライチェーン防御原則に反し、GitHub Actionsの uses: に可変ブランチ（@master / @main）が指定されています。コミットSHAまたは固定バージョンを指定してください。"
+  - id: "FACT-PRECOMMIT-LEGACY-STAGE"
+    pattern: "stages:\\s*\\[\\s*commit\\s*\\]"
+    message: "pre-commit v3.2.0以降において stages: [commit] は非推奨（Legacy）です。stages: [pre-commit] を使用してください。"
+  - id: "FACT-REGEX-CONTROL-CHAR-BACKREF"
+    pattern: "re\\.sub\\([^\\n]*,\\s*['\"]\\\\1="
+    message: "re.sub の置換文字列で raw string (r'...') を使わずに '\\1=' と記述すると、後方参照ではなく ASCII 0x01 制御文字になります。r'\\1=' に修正してください。"
 
 # 特定章における必須一次情報キーワード契約（Positive Ground-Truth Assertions）
 required_fact_assertions:
