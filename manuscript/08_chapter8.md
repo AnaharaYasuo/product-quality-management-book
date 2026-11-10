@@ -1,4 +1,4 @@
-# 第8章 インフラ・CI/CD成果物の検証（Shift-Left Infrastructure）
+# 第8章：インフラ・CI/CD成果物の検証（Shift-Left Infrastructure）
 
 クラウドネイティブ時代において、インフラストラクチャはデータセンターの物理ラックから、Gitリポジトリ上で管理されるテキストコード（Infrastructure as Code: IaC）へと完全に移行しました。Terraform、Dockerコンテナ、Kubernetesマニフェスト、そしてCI/CDパイプライン定義（GitHub Actions等）そのものが、現代のシステムにおける極めてクリティカルな「成果物」です。
 インフラのコード化は、インフラの欠陥やセキュリティホール、過剰スペックによる予算爆発、そしてサプライチェーン攻撃の侵入経路までもが「コードとして混入する」ことを意味します。本番環境に適用（`terraform apply`）した後に発覚する構成ミスは、数千万円規模のクラウド請求書や全社的セキュリティインシデントに直結します。
@@ -173,9 +173,9 @@ jobs:
   checkov:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       - name: Run Checkov
-        uses: bridgecrewio/checkov-action@master
+        uses: bridgecrewio/checkov-action@c123980c248c32a99923d1eb6b9f113d8c69f619 # v12.2991.0 (SHA固定)
         with:
           framework: terraform
           output_format: cli
@@ -361,7 +361,7 @@ CRITICAL_RESOURCE_TYPES = [
 ]
 
 def analyze_terraform_plan(plan_file_path: str):
-    with open(plan_file_path, "r", encoding="utf-8") as f:
+    with open(plan_file_path, encoding="utf-8") as f:
         plan_data = json.load(f)
 
     resource_changes = plan_data.get("resource_changes", [])
@@ -373,9 +373,10 @@ def analyze_terraform_plan(plan_file_path: str):
         actions = change.get("change", {}).get("actions", [])
 
         # actionsが ["delete", "create"] の場合は再作成（Forces Replacement）
-        if "delete" in actions and "create" in actions:
-            if any(resource_type.startswith(crit) for crit in CRITICAL_RESOURCE_TYPES):
-                violations.append({
+        if "delete" in actions and "create" in actions and any(
+            resource_type.startswith(crit) for crit in CRITICAL_RESOURCE_TYPES
+        ):
+            violations.append({
                     "type": resource_type,
                     "name": resource_name,
                     "actions": actions

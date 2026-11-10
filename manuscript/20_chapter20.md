@@ -123,6 +123,7 @@ Spotifyでは独立したQA部門を解体し、各フィーチャースクワ�
 # tools/ai_quality_coach.py
 import os
 import json
+import urllib.error
 import urllib.request
 
 def provide_quality_coaching(pr_title, pr_diff, domain_rules):

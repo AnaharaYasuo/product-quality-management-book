@@ -273,6 +273,7 @@ import os
 import sys
 import subprocess
 import json
+import urllib.error
 import urllib.request
 
 def get_git_diff():
@@ -319,7 +320,7 @@ def audit_consistency(pr_body, git_diff):
     model_name = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
     url = f'https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}'
     req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'})
-    
+
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             res_data = json.loads(resp.read().decode('utf-8'))

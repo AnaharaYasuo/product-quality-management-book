@@ -1,26 +1,31 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-一次情報に基づく技術ファクト検証 & 埋め込みPythonコード実ツール静的解析 (RAG + Ruff Gate)
+一次情報に基づく技術ファクト検証 & 埋め込みPythonコード実ツール静的解析・AST監査 (RAG + Ruff + AST Gate)
 
 【本スクリプトが解決する課題】
-LLM単独の「優秀なエンジニアロールプレイ監査」は、2023年末改訂のISO規格（ISO/IEC 25019:2023等）や
-実コードの未使用変数・未定義シンボルに対してハルシネーションや見落としを起こしやすい。
+LLM単独の「優秀なエンジニアロールプレイ監査」は、2023年末改訂のISO規格（ISO/IEC 25019:2023等）、
+CI設定仕様（GitHub Actionsピン留め、pre-commitステージ名）、および実コードの未使用変数・未インポート例外・
+無限ハング（urlopenのtimeout欠落）に対してハルシネーションや見落としを起こしやすい。
 そこで本スクリプトは以下の3層防御（Defense-in-Depth）を実行する：
 
 1. [Layer 1: Deterministic RAG Ground-Truth Check]
    `docs/knowledge_base/technical_ground_truth.yaml`（一次情報の正解知識ベース）を読み込み、
-   旧規格との混同パターン（`deterministic_fact_rules`）および必須一次情報契約（`required_fact_assertions`）を
+   旧規格混同・CIアンチパターン（`deterministic_fact_rules`）および必須一次情報契約（`required_fact_assertions`）を
    決定論的に全章検査する。
-2. [Layer 2: Executable Static Analysis via Ruff]
-   原稿内の全 ```python コードブロックを一時ファイルに抽出し、実ツール `ruff`（E, F, B, PLE）で
-   未定義関数（F821）、未使用インポート（F401）、ループ変数の未使用バグ（B007）等を機械的に摘発する。
+2. [Layer 2: Executable Static Analysis via Ruff + Custom AST Safety Rules]
+   原稿内の全 ```python コードブロックを一時ファイルに抽出し、
+   - 実ツール `ruff`（E, F, W, B, S, SIM, UP, PIE, PT, RUF, C4, RET, FURB, PLE, PLW）による厳格解析
+   - AST解析による `urllib.error` 未インポート時の `AttributeError` クラッシュ防止検査
+   - AST解析による `urllib.request.urlopen(..., timeout=...)` タイムアウト必須化検査
+   を機械的に実行する。
 3. [Layer 3: Optional RAG-Grounded Principal Engineer AI Review (--llm)]
    `GEMINI_API_KEY` が指定され `--llm` フラグが渡された場合、`technical_ground_truth.yaml` の全文を
    システムプロンプトへRAG注入（Grounding）した上で、章単位の深い技術整合性レビューを実行する。
 """
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -110,8 +115,55 @@ def verify_rag_ground_truth(kb: dict, md_files: List[Path]) -> List[str]:
     return errors
 
 
+def check_ast_runtime_safety(md_name: str, block_start: int, code: str) -> List[str]:
+    """ASTを用いて Ruff 単体では検知しない urllib.error 未インポートおよび urlopen timeout 欠落を検査する。"""
+    errors: List[str] = []
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return errors
+
+    imported_modules = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imported_modules.add(alias.name)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported_modules.add(node.module)
+
+    for node in ast.walk(tree):
+        # 1. urllib.error.URLError / HTTPError を参照しているのに urllib.error を import していないケース
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Attribute)
+            and isinstance(node.value.value, ast.Name)
+            and node.value.value.id == "urllib"
+            and node.value.attr == "error"
+            and "urllib.error" not in imported_modules
+        ):
+            abs_line = block_start + getattr(node, "lineno", 1)
+            errors.append(
+                f"[AST:UrllibErrorImport] {md_name}:{abs_line}: `urllib.error.{node.attr}` が使用されていますが `import urllib.error` が宣言されていません（実行時に AttributeError となるリスク）。"
+            )
+
+        # 2. urllib.request.urlopen(...) で timeout 引数が指定されていないケース
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "urlopen"
+        ):
+            has_timeout = len(node.args) >= 3 or any(kw.arg == "timeout" for kw in node.keywords)
+            if not has_timeout:
+                abs_line = block_start + getattr(node, "lineno", 1)
+                errors.append(
+                    f"[AST:UrlopenTimeout] {md_name}:{abs_line}: `urlopen()` に `timeout=` が指定されていません（CI環境での無限ハング防止のため必須）。"
+                )
+
+    return errors
+
+
 def verify_embedded_python_with_ruff(md_files: List[Path]) -> Tuple[int, List[str]]:
-    """Layer 2: 埋め込み Python スニペットを抽出し、実ツール Ruff で静的解析を実行する。"""
+    """Layer 2: 埋め込み Python スニペットを抽出し、実ツール Ruff + AST 安全性検査を実行する。"""
     errors: List[str] = []
     snippet_count = 0
 
@@ -128,6 +180,7 @@ def verify_embedded_python_with_ruff(md_files: List[Path]) -> Tuple[int, List[st
                 fpath = tmp_root / fname
                 fpath.write_text(code, encoding="utf-8")
                 snippet_meta[fname] = (md_path.name, start_line)
+                errors.extend(check_ast_runtime_safety(md_path.name, start_line, code))
 
         if snippet_count == 0:
             return 0, []
@@ -138,9 +191,9 @@ def verify_embedded_python_with_ruff(md_files: List[Path]) -> Tuple[int, List[st
             "ruff",
             "check",
             "--select",
-            "E,F,B,PLE",
+            "E,F,W,B,S,SIM,UP,PIE,PT,RUF,C4,RET,FURB,PLE,PLW",
             "--ignore",
-            "E501",
+            "E501,S101,S310,S602,S603,S607,RUF001,RUF002,RUF003",
             "--output-format",
             "json",
             str(tmp_root),
@@ -224,7 +277,7 @@ def main() -> int:
     md_files = sorted(MANUSCRIPT_DIR.glob("*.md"))
 
     print("================================================================================")
-    print("🔬 Technical Fact Knowledge Base (RAG) & Ruff Embedded Code Audit")
+    print("🔬 Technical Fact Knowledge Base (RAG) & Ruff/AST Embedded Code Audit")
     print("================================================================================")
 
     # Layer 1: Deterministic RAG Ground-Truth Check
@@ -235,10 +288,10 @@ def main() -> int:
         f"RequiredAssertions={len(kb.get('required_fact_assertions', []))} -> Violations={len(rag_errors)}"
     )
 
-    # Layer 2: Ruff Static Analysis on Embedded Python Blocks
+    # Layer 2: Ruff + AST Static Analysis on Embedded Python Blocks
     snippet_count, ruff_errors = verify_embedded_python_with_ruff(md_files)
     print(
-        f"🐍 [Layer 2: Ruff Embedded Python Static Analysis] Snippets={snippet_count} -> Violations={len(ruff_errors)}"
+        f"🐍 [Layer 2: Ruff (15 Rule Families) + AST Runtime Safety] Snippets={snippet_count} -> Violations={len(ruff_errors)}"
     )
 
     # Layer 3: Optional RAG-Grounded LLM Audit
@@ -254,7 +307,7 @@ def main() -> int:
             print(f"  - {err}")
         return 1
 
-    print("\n✅ PASSED: 一次情報知識ベース（RAG）整合性および全埋め込みPythonコードのRuff静的解析に完全合格しました。")
+    print("\n✅ PASSED: 一次情報知識ベース（RAG）整合性および全埋め込みPythonコードのRuff/AST静的解析に完全合格しました。")
     return 0
 
 

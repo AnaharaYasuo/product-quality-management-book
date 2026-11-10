@@ -164,6 +164,7 @@ $$ 10 \times (40 - 2) \times 8,000 = 3,040,000 \text{円} $$
 # tools/generate_quality_roadmap.py
 import os
 import json
+import urllib.error
 import urllib.request
 
 def generate_roadmap(team_context, current_challenges):
