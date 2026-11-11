@@ -31,7 +31,7 @@ flowchart TD
 3. **PR分割ハック（ベロシティ稼ぎ）**: 「PRサイズ上限400行」というルールに対し、1つの完結した機能を不自然に5つに分割し、単体ではビルドも通らないPRを乱立させて消化ポイントを偽装する。
 4. **バグの地下潜伏（Bug Hiding）**: 「バグ検出件数」や「残存不具合数」でペナルティを課されるため、開発者が軽微なバグをチケット起票せず、個人のローカルコミットでこっそり直して隠蔽する。
 
-メトリクスハックの根本原因は、現場の悪意ではなく「無理な目標に対する現場の生存本能」である。達成不可能な目標を課された人間は、生き残るために最も抵抗の少ない抜け道を探す。したがって、ハックを根絶する唯一の道は、現場を取り締まることではなく、インセンティブ構造そのものを健全に再設計することである。
+メトリクスハックの根本原因は、現場の悪意ではなく「無理な目標に対する現場の生存本能」である。達成不可能な目標を課された人間は、生き残るために最も抵抗の少ない抜け道を探す。したがって、ハックを減らす唯一の道は、現場を取り締まることではなく、インセンティブ構造そのものを健全に再設計することである。
 
 ---
 
@@ -171,6 +171,7 @@ def audit_test_file(file_path):
 def audit_semantic_mock_abuse_with_llm(test_code: str, api_key: str) -> dict:
     """ASTでは見抜けない『assert True』や『モック自身が返した固定値をそのままassertするだけの意味のないテスト』をLLMでセマンティック摘発"""
     import json
+    import os
     import urllib.request
     prompt = (
         "以下のテストコードを精査し、グッドハートの法則による『形骸化ハック』がないかJSONで判定してください。\n"
@@ -180,7 +181,7 @@ def audit_semantic_mock_abuse_with_llm(test_code: str, api_key: str) -> dict:
         '出力形式: {"is_hollow_hack": true/false, "reason": "理由"}'
     )
     req = urllib.request.Request(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        f"https://generativelanguage.googleapis.com/v1beta/models/{os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')}:generateContent",
         data=json.dumps({"contents": [{"role": "user", "parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}).encode("utf-8"),
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
     )

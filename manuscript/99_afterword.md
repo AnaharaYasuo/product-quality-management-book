@@ -51,7 +51,7 @@ AIがどれほど驚異的な速度でコードを生成しようとも、それ
 
 - **Level 1：属人・手動テスト依存期**
   - リリース前の手動確認に頼っており、ホットフィックスと夜間障害が頻発している。
-  - **【最初の一歩】**: 第7章・第8章のLinter / SASTとブランチ保護ルールを導入し、「壊れたコードが物理的にマージできない」最小の関所を作る。
+  - **【最初の一歩】**: 第7章・第8章のLinter / SASTとブランチ保護ルールを導入し、「壊れたコードが機械的にマージできない」最小の関所を作る。
 - **Level 2：基本CI/CDと自動テスト導入期**
   - 単体テストとCIは動いているが、Flakyテストや形骸化したカバレッジ目標に悩まされている。
   - **【次の一歩】**: 第9章のミューテーションテストと第14章のテスト隔離（Testcontainers等）を導入し、「信頼できるテスト資産」へ純化する。
@@ -93,6 +93,10 @@ AIがどれほど驚異的な速度でコードを生成しようとも、それ
 - **C4 Model & ATAM**: S. Brown, *Software Architecture for Developers* (2018)。R. Kazman et al., *ATAM: Method for Architecture Evaluation*, CMU/SEI-2000-TR-004 (2000).
 - **Ragas (RAG Evaluation)**: S. Es et al., *"Ragas: Automated Evaluation of Retrieval Augmented Generation"*, EACL 2024 (2024).
 - **Spotify Engineering Model**: H. Kniberg & A. Ivarsson, *"Scaling Agile @ Spotify with Tribes, Squads, Chapters & Guilds"* (2012).
+- **Defect cost curve（異論）**: T. Menzies et al., *"Are delayed issues harder to resolve? Revisiting cost-to-fix of defects throughout the lifecycle"*, Empir. Softw. Eng. 22 (2017).
+- **Defect cost curve（異論）**: L. Bossavit, *The Leprechauns of Software Engineering*, Leanpub (2015).
+- **Reward hacking**: METR, *"Recent Frontier Models Are Reward Hacking"* (2025).
+- **SLSA provenance**: OpenSSF, *slsa-github-generator* / *slsa-verifier* (GitHub).
 - **Pretotyping**: A. Savoia, *The Right It: Why So Many Ideas Fail and How to Make Sure Yours Succeed*, HarperOne (2019).
 
 ---

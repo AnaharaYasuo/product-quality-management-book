@@ -30,7 +30,7 @@ flowchart TD
 単体テストの資産価値を測るためには、以下の品質要件を満たしているかを監査する。
 
 - **決定論的実行（Determinism）**:
-  外部I/O（ネットワーク、ファイルシステム、DB）を完全に遮断し、何度実行しても同一の結果が得られること。
+  外部I/O（ネットワーク、ファイルシステム、DB）を遮断（モック化）し、何度実行しても同一の結果が得られること。
 - **高速性（Sub-millisecond Execution）**:
   1テストケースあたり数ミリ秒で完了し、数千件のスイート全体でも数秒以内で終了すること。開発者の思考ループ（Red-Green-Refactor）を阻害しないことが維持される。
 - **アサーションの明確性と単一関心事**:
@@ -258,7 +258,7 @@ flowchart TD
 ## 9.5 AI確証実践：Meta「TestGen-LLM / Assured Offline LLMSE」の完全再現
 
 2024年、Meta社の研究チーム（Alshahwan et al.）は国際会議FSE 2024にて画期的な論文（*Automated Unit Test Improvement using Large Language Models at Meta*）を発表した。さらに2025年には、変異テスト（Mutation Testing）とLLMを融合させた後続システム「ACH」（*Mutation-Guided LLM-based Test Generation at Meta*）へと発展させている。
-Metaが開発した「TestGen-LLM」は、人間がレビューする前に**3重の厳格な検証フィルター（Assured LLM-based Software Engineering）**を適用する。これにより、ノイズや幻覚を完全に排除した高品質なPRのみを自動生成する。
+Metaが開発した「TestGen-LLM」は、人間がレビューする前に**3重の厳格な検証フィルター（Assured LLM-based Software Engineering）**を適用する。これにより、ノイズや幻覚を除いた高品質なPRのみを自動生成する。
 
 ```mermaid
 flowchart TD

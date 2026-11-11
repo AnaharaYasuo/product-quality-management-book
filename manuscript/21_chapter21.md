@@ -152,7 +152,7 @@ flowchart LR
 - **巨大モノリス環境における補正（`T_prod` の増大）**: 技術的負債が極度に蓄積した密結合モノリス環境では、1箇所の修正が予期せぬ箇所の破壊を招くため、本番障害時の修正コストは基準値の300倍以上に膨れ上がる。
 - **初期イニシャルコストの誠実な計上**: 初期のモック剥がしやテスト環境整備には一時的な先行投資が発生するため、初年度はイニシャルコストを差し引いた段階的ROIを提示すると経営陣に対してより誠実な説得となる。
 
-さらにCEOや事業責任者（BizDev/PdM）の心を決定的に動かすには、数式の右辺にある事業損失 `L_business` を**「チャーンレート（解約率）」「LTV（顧客生涯価値）」「CVR」といった経営KPIの言葉に直結させて語ること**が極めて効果的である。たとえば「決済やログイン周りのP0障害が年に3回発生すると、法人顧客の月次チャーンレートが0.4%悪化し、LTV換算で年間4,500万円のARR（年間経常収益）が永久に失われる。この品質投資は単なるエンジニアの作業効率化ではなく、**解約率を抑えてLTVとARRを防衛するための最も確実な事業投資**なのです」と提示することで、経営会議での予算承認率は劇的に跳ね上がる。
+さらにCEOや事業責任者（BizDev/PdM）の心を決定的に動かすには、数式の右辺にある事業損失 `L_business` を**「チャーンレート（解約率）」「LTV（顧客生涯価値）」「CVR」といった経営KPIの言葉に直結させて語ること**が極めて効果的である。たとえば「決済やログイン周りのP0障害が年に3回発生すると、法人顧客の月次チャーンレートが0.4%悪化し、LTV換算で年間4,500万円のARR（年間経常収益）が永久に失われる。この品質投資は単なるエンジニアの作業効率化ではなく、**解約率を抑えてLTVとARRを防衛するための最も確実な事業投資**なのです」と提示することで、経営会議での予算承認率は大きく跳ね上がる。
 
 ---
 
@@ -188,7 +188,7 @@ def generate_roadmap(team_context, current_challenges):
     payload = {
         "contents": [{"role": "user", "parts": [{"text": f"{system_prompt}\n\n{user_content}"}]}]
     }
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')}:generateContent"
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
