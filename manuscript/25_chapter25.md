@@ -21,7 +21,7 @@
 
 多くの開発組織において、QA（品質保証）やテストエンジニアの主戦場は「Verification」であった。仕様書通りに動くか、境界値で例外が発生しないか、負荷に耐えられるか、セキュリティホールがないか。これらはすべて「モノを正しく作る」ための工学的規律である。
 
-しかし、激動する市場環境や、AIによってソフトウェア製造コストが劇的に低下した現代において、最大の事業リスクは「不具合」ではなく「無価値」である。
+しかし、激動する市場環境や、AIによってソフトウェア製造コストが大きく低下した現代において、最大の事業リスクは「不具合」ではなく「無価値」である。
 
 ```mermaid
 flowchart TD
@@ -118,14 +118,14 @@ classDiagram
 
 アルバート・サヴォイア（Alberto Savoia）が提唱した「プレトタイピング（Pretotyping）」は、1行のコードも書く前に「そもそも人々がそれを欲しがるか？」を最速でテストする手法である。
 
-- **メカニカル・ターク型**: 表向きは全自動AIシステムに見せかけ、裏側で人間が手作業で処理して需要を測定する。
+- **メカニカル・ターク型**: 自動化を作り込む前に、裏側で人間が手作業で処理して需要を測定する。ただし、人が処理しているのに「全自動AI」と表示して有償で提供すると、景品表示法の優良誤認表示にあたるおそれがある。また、利用者の入力を人が見ることになるため、個人情報の取り扱いについての告知と同意も必要になる。実施する場合は、「一部の処理を担当者が行っています」と明示するか、無償の検証プログラムとして参加者の同意を得て行う。
 - **フェイクドア型**: 存在しない機能のボタンを配置し、クリックしたユーザーに「現在開発中である。事前登録しますか？」と表示して関心度を測定する。
 
 QAチームは、これらの検証活動を「邪道」と排斥するのではなく、「究極のValidation品質保証」としてテスト計画に統合しなければならない。
 
 ### プレトタイピング・フェイクドアにおける倫理的配慮とクローズドB2B環境でのValidation手法
 
-ただし、フェイクドアやプレトタイピングを実践する際は、**「ユーザーの信頼を毀損するダークパターン（欺瞞的UI）やプライバシー侵害に陥らないための倫理的ガードレール」**が不可欠である。決済画面や医療・金融手続きの直前で「実はこの機能はまだ存在しません」と表示すれば、ユーザーは騙されたと感じてブランドへの信頼（ISO 25019の満足度・リスク回避性）は地に落つ。フェイクドアを実施する際は、①「ベータ機能ラボ（先行プレビュー枠）」であることを明示して期待値を誠実にコントロールすること、②クリックイベントの集計時は個人情報（PII）や入力フォームの機密データを一切保存せず、匿名化された関心度カウントのみを取得すること、を絶対の品質規律として守らなければならない。
+ただし、フェイクドアやプレトタイピングを実践する際は、**「ユーザーの信頼を毀損するダークパターン（欺瞞的UI）やプライバシー侵害に陥らないための倫理的ガードレール」**が不可欠である。決済画面や医療・金融手続きの直前で「実はこの機能はまだ存在しません」と表示すれば、ユーザーは騙されたと感じてブランドへの信頼（ISO 25019の満足度・リスク回避性）は地に落ちる。フェイクドアを実施する際は、①「ベータ機能ラボ（先行プレビュー枠）」であることを明示して期待値を誠実にコントロールすること、②クリックイベントの集計時は個人情報（PII）や入力フォームの機密データを一切保存せず、匿名化された関心度カウントのみを取得すること、を絶対の品質規律として守らなければならない。
 
 また、「オンプレミスや閉域網で稼働するレガシーなB2Bエンタープライズ環境であり、セキュリティ制約上エンドユーザーの行動テレメトリ（PostHogやGoogle Analytics等）を外部送信できない」という現場も少なくない。そのようなクローズド環境におけるValidationは、以下の3つの代替アプローチで実践する。
 
@@ -187,13 +187,13 @@ flowchart LR
 3. **フェーズ3（ブラウンアウト・テストと心理的摩擦を最小化するアナウンス文面）**:
    機能をいきなり消すのではなく、特定の時間帯だけ意図的に機能を無効化（フィーチャーフラグでOFF）し、問い合わせや重大な苦情が発生しないかを実験する。この際、ユーザーの心理的動揺やクレームを防ぐため、UIバナーや通知メールでは単に「機能を廃止します」と突き放すのではなく、**「【重要なお知らせ】より高速で安全な『新・一括エクスポート機能（v2）』への統合に伴い、旧CSV出力機能は○月○日をもって提供を終了いたします。今後は画面右上の『新エクスポート』ボタンよりワンクリックで同等のデータを取得いただけます（なお、完全終了に先立ち、○月○日の14:00〜16:00に一時停止テストを実施いたします）」**と案内する。このように、「①上位互換となる代替手段への具体的な誘導」「②統合によるユーザーメリット」「③計画的な一時停止（ブラウンアウト）の事前予告」の3点セットを必ず添えるのが親切なプロダクト運用の鉄則である。
 4. **フェーズ4（コード・テーブル完全パージ）**:
-   ブランチを切り、バックエンド、フロントエンド、DBマイグレーションから対象コードを物理的に削除。PRでレビューしマージする。
+   ブランチを切り、バックエンド、フロントエンド、DBマイグレーションから対象コードを機械的に削除。PRでレビューしマージする。
 
 ---
 
 ## 25.5 実装例：利用実態ログとAI妥当性監査パイプライン
 
-ユーザー行動ログから「価値の出ていない機能（ゾンビ候補）」を自動検出し、ISO 25019の利用時品質メトリクスに基づいて機能廃止または改善提案のGitHub Issueを起票するPythonスクリプトの実装例である。
+ユーザー行動ログから「価値の出ていない機能（ゾンビ候補）」を自動検出し、ISO 25019の利用時品質メトリクスに基づいて機能廃止または改善提案のGitHub Issueを起票するPythonスクリプトの実装例である。判定基準は本書共通の「90日間のDAU/MAU比0.5%未満」とする。また、本番データを読めないときにデモデータで代用すると、存在しないゾンビ機能が毎週Issueとして起票されてしまう。そこで、データソースが無い場合や集計結果が0件の場合は監査そのものを失敗させ、デモデータは `--demo` を指定したときだけ使う。
 
 ```python
 # tools/audit_product_validation.py
@@ -227,7 +227,7 @@ class FeatureUsageMetric:
 
 
 class ProductValidationAuditor:
-    def __init__(self, min_adoption_threshold: float = 0.02, min_completion_threshold: float = 0.60):
+    def __init__(self, min_adoption_threshold: float = 0.005, min_completion_threshold: float = 0.60):
         self.min_adoption_threshold = min_adoption_threshold
         self.min_completion_threshold = min_completion_threshold
 
@@ -262,7 +262,11 @@ class ProductValidationAuditor:
 
 
 def fetch_metrics_from_db_or_api(dsn: str) -> list[FeatureUsageMetric]:
-    """実運用でのデータ取得イメージ：DWH（BigQuery / PostgreSQL）やPostHog APIから直近30日の機能別集計を取得する接続アダプタ"""
+    """DWH（BigQuery / PostgreSQL）やPostHog APIから直近90日の機能別集計を取得する接続アダプタ。
+
+    自社のデータ基盤に合わせて実装する。未実装のまま空リストを返すと
+    「監査したが問題なし」と誤認されるため、未実装なら例外を送出する。
+    """
     # [連携パターン1: BigQuery / PostgreSQL のイベントテーブルから直接SQL集計する場合]
     # query = """
     #   SELECT feature_id, ANY_VALUE(feature_name) AS feature_name,
@@ -271,24 +275,45 @@ def fetch_metrics_from_db_or_api(dsn: str) -> list[FeatureUsageMetric]:
     #          COUNT(DISTINCT CASE WHEN event_type = 'feature_completed' THEN user_id END) AS completed_count,
     #          AVG(CASE WHEN event_type = 'feature_completed' THEN duration_sec END) AS avg_duration_sec,
     #          COUNTIF(event_type = 'feature_error') AS error_count
-    #   FROM `my_project.analytics.user_events` WHERE event_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
+    #   FROM `my_project.analytics.user_events` WHERE event_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)
     #   GROUP BY feature_id
     # """
     # [連携パターン2: PostHog HogQL API / Query Endpoint を用いてSaaSから直接JSON取得する場合]
     # PostHogのQuery APIエンドポイント（/api/projects/<project_id>/query/）へ {"query": {"kind": "HogQLQuery", "query": query}} をPOST送信
-    return []
+    raise NotImplementedError("データ基盤への接続アダプタを実装してください")
 
 
-if __name__ == "__main__":
-    # 実環境では os.environ.get("ANALYTICS_DB_DSN") があれば fetch_metrics_from_db_or_api() を呼び出し、未設定時はモックで検証
-    mock_metrics = [
+DEMO_METRICS = [
         FeatureUsageMetric("feat_ai_summary", "AI自動要約機能", 10000, 4200, 3900, 12.4, 45),
         FeatureUsageMetric("feat_legacy_csv_export", "レガシー独自形式CSV出力", 10000, 15, 8, 140.2, 3),
         FeatureUsageMetric("feat_bulk_approval", "一括承認ワークフロー", 10000, 1800, 750, 88.0, 310)
-    ]
+]
+
+
+if __name__ == "__main__":
+    import os
+    import sys
+
+    if "--demo" in sys.argv:
+        # 本文の説明用。デモデータで起票まで走らないよう、出力の先頭に明記する
+        print("[DEMO] デモデータによる出力です（本番データではありません）")
+        metrics = DEMO_METRICS
+    else:
+        dsn = os.environ.get("ANALYTICS_DB_DSN")
+        if not dsn:
+            print("❌ ANALYTICS_DB_DSN が未設定です。本番データを読めないため監査できません。", file=sys.stderr)
+            sys.exit(1)
+        try:
+            metrics = fetch_metrics_from_db_or_api(dsn)
+        except NotImplementedError as exc:
+            print(f"❌ {exc}", file=sys.stderr)
+            sys.exit(1)
+        if not metrics:
+            print("❌ 集計結果が0件です。データ取得に失敗している可能性があるため監査を中止します。", file=sys.stderr)
+            sys.exit(1)
 
     auditor = ProductValidationAuditor()
-    report = auditor.evaluate_features(mock_metrics)
+    report = auditor.evaluate_features(metrics)
 
     print("=== ISO/IEC 25019 プロダクト妥当性（Validation）監査レポート ===")
     print(f"健全な機能数: {len(report['healthy_features'])}")
@@ -332,10 +357,11 @@ jobs:
 
       - name: Run Product Validation Audit
         env:
-          ANALYTICS_API_KEY: ${{ secrets.PRODUCT_ANALYTICS_API_KEY }}
+          ANALYTICS_DB_DSN: ${{ secrets.ANALYTICS_DB_DSN }}
         run: |
-          python tools/audit_product_validation.py > validation_report.txt
-          cat validation_report.txt
+          set -o pipefail
+          # データを読めない場合はここで失敗し、後続のIssue起票は実行されない
+          python tools/audit_product_validation.py | tee validation_report.txt
 
       - name: File Issue for Deprecation Candidates
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
@@ -343,7 +369,7 @@ jobs:
           script: |
             const fs = require('fs');
             const report = fs.readFileSync('validation_report.txt', 'utf8');
-            if (report.includes('ゾンビ機能（廃止・削除推奨）: 0')) {
+            if (report.includes('[DEMO]') || report.includes('ゾンビ機能（廃止・削除推奨）: 0')) {
               console.log('No deprecation candidates found.');
               return;
             }
@@ -379,7 +405,7 @@ jobs:
 | **有効性（Effectiveness）** | 主目標タスク完了率（Task Completion Rate） | **≥ 75.0%** | **< 60.0%**（UI/UX致命的摩擦・仮説再設計） |
 | **効率性（Efficiency）** | 競合・従来手作業に対するタスク所要時間短縮率 | **≥ 30.0% 短縮** | 従来比短縮なし、または操作複雑化 |
 | **満足度（Satisfaction）** | CSAT（満足度スコア）またはSUSユーザビリティ評点 | CSAT ≥ 4.0 / SUS ≥ 70 | CSAT < 3.0 / SUS < 50（強い不満） |
-| **機能生存（Deprecation）** | リリース後60日時点での機能採用率（Adoption Rate） | **≥ 5.0%（DAU比）** | **< 0.5%**（機能削除プロセスの即時発動） |
+| **機能生存（Deprecation）** | リリース後90日間の機能採用率（DAU/MAU比） | **≥ 5.0%（DAU比）** | **< 0.5%**（機能削除プロセスの即時発動） |
 | **統計的有意性（A/B Test）** | 主要コンバージョン指標の有意差検定 | **p値 < 0.05 達成** | p値 ≥ 0.05（差なし判定、ベースライン維持） |
 
 ---
@@ -393,7 +419,7 @@ jobs:
 自社リポジトリまたは管理画面から、過去半年間の機能一覧を抽出し、以下のマトリクスを完成させる。
 
 1. **アクティブ率の測定**: 全画面・全主要機能のMAU利用率をアナリティクスツール（Google Analytics, PostHog, Mixpanel等）で算出する。
-2. **ゾンビ機能の特定**: 利用率が全体の1%未満、かつ最終更新から1年以上経過している機能を3つ特定する。
+2. **ゾンビ機能の特定**: 90日間のDAU/MAU比が0.5%未満、かつ最終更新から1年以上経過している機能を3つ特定する。
 3. **削除計画の立案**: 特定した3つの機能について、事前アナウンス日、ブラウンアウト（無効化）実施日、コード完全削除（Purge）PR作成日を決定する。
 
 ### 演習2：ISO/IEC 25019 に基づく新機能Validation計画書
@@ -407,7 +433,7 @@ jobs:
 | **3. 有効性（ISO 25019）** | 何をもってタスク完了とみなすか？ | （例：要約生成後に「Slackへ共有」または「保存」が押された割合 ≥ 75%） |
 | **4. 効率性（ISO 25019）** | 従来比でどれだけ時間を短縮するか？ | （例：ボタン押下から共有完了までの平均所要時間 ≤ 60秒） |
 | **5. 30日後存続基準** | リリース30日後の採用率の合格ラインは？ | （例：対象画面訪問ユーザーのうち週次利用率 ≥ 10.0%） |
-| **6. 撤退・削除基準** | 未達時にいつ・どう廃止（Sunset）するか？ | （例：60日時点で利用率1%未満ならブラウンアウトを経てコード完全削除） |
+| **6. 撤退・削除基準** | 未達時にいつ・どう廃止（Sunset）するか？ | （例：90日間のDAU/MAU比0.5%未満ならブラウンアウトを経てコード完全削除） |
 
 ---
 

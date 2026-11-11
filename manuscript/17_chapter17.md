@@ -102,7 +102,7 @@ if __name__ == "__main__":
     validate_incoming_orders(sample_df)
 ```
 
-このバリデーションをAirflowやPrefect、GitHub Actionsのパイプラインに埋め込むことで、不正データのDWH（データレイク）への流入を境界で物理的に遮断する。なお、上記コードでは手元で即座に試せるようインメモリ設定（`gx.get_context()`）を使用している。本番のAirflowやPrefect等で日次運用する際は、`gx.get_context(mode="file", project_root_dir="/opt/gx")` やS3/PostgreSQLストアを指定し、検証結果（Data Docs）を監査証跡として永続化する。また、Great Expectationsは旧V2 APIと最新のGX Core 1.0以降（Fluent Data Sources方式）で記述が大きく異なる。そのため、環境構築時は `requirements.txt` で `great_expectations>=1.0.0` のようにメジャーバージョンを厳密にピン留めすることが必須である。
+このバリデーションをAirflowやPrefect、GitHub Actionsのパイプラインに埋め込むことで、不正データのDWH（データレイク）への流入を境界で機械的に遮断する。なお、上記コードでは手元で即座に試せるようインメモリ設定（`gx.get_context()`）を使用している。本番のAirflowやPrefect等で日次運用する際は、`gx.get_context(mode="file", project_root_dir="/opt/gx")` やS3/PostgreSQLストアを指定し、検証結果（Data Docs）を監査証跡として永続化する。また、Great Expectationsは旧V2 APIと最新のGX Core 1.0以降（Fluent Data Sources方式）で記述が大きく異なる。そのため、環境構築時は `requirements.txt` で `great_expectations>=1.0.0` のようにメジャーバージョンを厳密にピン留めすることが必須である。
 
 ---
 
@@ -140,7 +140,7 @@ sequenceDiagram
 
 AIシステムの品質保証における最大の障壁の一つが、「モデルの再現性（Reproducibility）」である。数ヶ月前にデプロイされたモデルがどのようなデータ、どのようなハイパーパラメータ、どのようなコードで学習されたのかが追跡できない場合、障害時のデバッグや規制当局への説明は不可能となる。
 
-特徴量ストア（Feature Store）の採用は、学習時と推論時における特徴量計算の乖離（Training-Serving Skew）を防ぐ上で決定的な役割を果たす。オフラインのバッチ学習で用いた集計SQLと、オンライン推論APIで実行したリアルタイム計算ロジックにわずかでも差異が存在すれば、モデルは学習時と異なる世界を観測することになり、性能が劇的に崩壊する。
+特徴量ストア（Feature Store）の採用は、学習時と推論時における特徴量計算の乖離（Training-Serving Skew）を防ぐ上で決定的な役割を果たす。オフラインのバッチ学習で用いた集計SQLと、オンライン推論APIで実行したリアルタイム計算ロジックにわずかでも差異が存在すれば、モデルは学習時と異なる世界を観測することになり、性能が大きく崩壊する。
 
 MLflowやDVC（Data Version Control）、あるいはFeastのような特徴量ストアを活用し、以下の4要素を不可分に紐付けてコミットハッシュとともに記録・監査する：
 
@@ -152,6 +152,8 @@ MLflowやDVC（Data Version Control）、あるいはFeastのような特徴量�
 ---
 
 ## 17.5 AI確証実践：スキーマ不整合と異常値パターンのAI自己修復
+
+> **データ送信の注意**：この節のスクリプトは、上流データのサンプル行を外部のLLM APIへ送信する。実行前に、第2章「外部LLMへのデータ送信ポリシー」に沿って、送信してよいデータか、個人情報や秘密情報をマスキングしたかを確認すること。
 
 上流の提携先システムやスクレイピング対象のWebサイトで予告なくカラム名が変更されたり、フォーマットが変わったりすることでデータパイプラインが停止することがある。
 
@@ -188,7 +190,7 @@ def repair_broken_schema(target_schema, incoming_columns_sample):
         "contents": [{"role": "user", "parts": [{"text": f"{system_prompt}\n\n{user_content}"}]}],
         "generationConfig": {"response_mime_type": "application/json"}
     }
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')}:generateContent"
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),

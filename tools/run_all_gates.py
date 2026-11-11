@@ -25,6 +25,7 @@ GATES = [
     ("Gate 2: Commercial DoD & Chapter/Section Numbering Audit", [sys.executable, "tools/audit_book_dod.py"]),
     ("Gate 3: Mermaid Diagram AST & Real-Browser SVG Validation", [sys.executable, "tools/validate_mermaid.py"]),
     ("Gate 4: Primary-Source Knowledge Base (RAG) & Ruff Embedded Code Audit", [sys.executable, "tools/audit_technical_facts.py"]),
+    ("Gate 5: Snippet Claim Tests (samples behave as the text claims)", [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_snippet_claims.py"]),
 ]
 
 

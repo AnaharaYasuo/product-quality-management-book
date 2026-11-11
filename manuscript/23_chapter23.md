@@ -28,10 +28,10 @@ flowchart TD
 
 1. **嘘カバレッジ（Assertion-Free Testing）**: テスト関数の中で対象メソッドを呼び出すだけで、戻り値や状態変化を `assert` しない。実行行数（Line Coverage）だけが稼がれ、バグ検知力はゼロ。
 2. **DoDノールック全チェック**: PRテンプレートのチェックボックス（`[x]`）を内容も見ずに全選択して送信する。形骸化したチェックリストの典型。
-3. **PR分割ハック（ベロシティ稼ぎ）**: 「PRサイズ上限300行」というルールに対し、1つの完結した機能を不自然に5つに分割し、単体ではビルドも通らないPRを乱立させて消化ポイントを偽装する。
+3. **PR分割ハック（ベロシティ稼ぎ）**: 「PRサイズ上限400行」というルールに対し、1つの完結した機能を不自然に5つに分割し、単体ではビルドも通らないPRを乱立させて消化ポイントを偽装する。
 4. **バグの地下潜伏（Bug Hiding）**: 「バグ検出件数」や「残存不具合数」でペナルティを課されるため、開発者が軽微なバグをチケット起票せず、個人のローカルコミットでこっそり直して隠蔽する。
 
-メトリクスハックの根本原因は、現場の悪意ではなく「無理な目標に対する現場の生存本能」である。達成不可能な目標を課された人間は、生き残るために最も抵抗の少ない抜け道を探す。したがって、ハックを根絶する唯一の道は、現場を取り締まることではなく、インセンティブ構造そのものを健全に再設計することである。
+メトリクスハックの根本原因は、現場の悪意ではなく「無理な目標に対する現場の生存本能」である。達成不可能な目標を課された人間は、生き残るために最も抵抗の少ない抜け道を探す。したがって、ハックを減らす唯一の道は、現場を取り締まることではなく、インセンティブ構造そのものを健全に再設計することである。
 
 ---
 
@@ -133,15 +133,24 @@ flowchart TD
 AST（抽象構文木）解析では、テスト関数の構文ツリーを走査し、以下の2つのいずれかが必ず含まれているかを決定論的に検証する：
 
 1. **Assert文ノード（`ast.Assert`）**: Pythonの標準的なアサーション構文。
-2. **検証用メソッド呼び出し（`ast.Call`）**: `unittest.TestCase` のアサーションメソッド（`assertEqual` 等）や、モックライブラリの検証（`assert_called_once` 等）。
+2. **検証用メソッド呼び出し（`ast.Call`）**: `unittest.TestCase` のアサーションメソッド（`assertEqual` 等）、モックライブラリの検証（`assert_called_once` 等）、および例外の検証（`pytest.raises`）。第1章と同じく、`pytest.raises` も有効な検証として数える。
 
-このいずれのノードも含まないテスト関数を発見した場合、CIパイプラインは即座にExit Code 1で異常終了し、PRをブロックする。これにより、カバレッジノルマが生み出す「嘘カバレッジ」の混入を物理的に根絶できる。なお、このAST解析アプローチはPython以外の言語でも容易に構築できる。TypeScript環境では `ts-morph` やESLintの `jest/expect-expect` ルール、Go言語では標準の `go/ast` パッケージや `testifylint` を用いることで、全く同様にアサーション欠落や形骸化テストを機械的に摘発できる。
+このいずれのノードも含まないテスト関数を発見した場合、CIパイプラインは即座にExit Code 1で異常終了し、PRをブロックする。これにより、カバレッジノルマが生み出す「嘘カバレッジ」の混入を機械的に検出できる。なお、このAST解析アプローチはPython以外の言語でも容易に構築できる。TypeScript環境では `ts-morph` やESLintの `jest/expect-expect` ルール、Go言語では標準の `go/ast` パッケージや `testifylint` を用いることで、全く同様にアサーション欠落や形骸化テストを機械的に摘発できる。
 
 ```python
 # tools/detect_fake_coverage.py
 import ast
 import sys
 import glob
+
+def is_verification_call(node) -> bool:
+    """関数名（属性名）で検証呼び出しを判定する。ast.dump の文字列検索は使わない。"""
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+    return name.startswith("assert") or name in {"raises", "warns", "expect"}
+
 
 def audit_test_file(file_path):
     with open(file_path, encoding="utf-8") as f:
@@ -152,11 +161,8 @@ def audit_test_file(file_path):
         if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
             # 関数内の全構文をスキャンし、assert 文が存在するか確認
             has_assert = any(isinstance(n, ast.Assert) for n in ast.walk(node))
-            # pytest.raises や mock.assert_called 等の呼び出し確認
-            has_verify = any(
-                isinstance(n, ast.Call) and "assert" in ast.dump(n).lower()
-                for n in ast.walk(node)
-            )
+            # assertEqual / assert_called_once などの検証メソッド、および pytest.raises を検証として数える
+            has_verify = any(is_verification_call(n) for n in ast.walk(node))
             if not has_assert and not has_verify:
                 hollow_tests.append(node.name)
 
@@ -165,6 +171,7 @@ def audit_test_file(file_path):
 def audit_semantic_mock_abuse_with_llm(test_code: str, api_key: str) -> dict:
     """ASTでは見抜けない『assert True』や『モック自身が返した固定値をそのままassertするだけの意味のないテスト』をLLMでセマンティック摘発"""
     import json
+    import os
     import urllib.request
     prompt = (
         "以下のテストコードを精査し、グッドハートの法則による『形骸化ハック』がないかJSONで判定してください。\n"
@@ -174,7 +181,7 @@ def audit_semantic_mock_abuse_with_llm(test_code: str, api_key: str) -> dict:
         '出力形式: {"is_hollow_hack": true/false, "reason": "理由"}'
     )
     req = urllib.request.Request(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        f"https://generativelanguage.googleapis.com/v1beta/models/{os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')}:generateContent",
         data=json.dumps({"contents": [{"role": "user", "parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}).encode("utf-8"),
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
     )

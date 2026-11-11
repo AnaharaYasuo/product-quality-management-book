@@ -81,15 +81,24 @@ spec:
   metrics:
     - name: error-rate
       interval: 1m
-      successCondition: result[0] <= 0.01
+      # 母数が少ない時間帯はクエリが空ベクトルを返す（下の最小母数ガード）。
+      # 空の結果は失敗ではなく「判定保留（inconclusive）」として扱う。
+      successCondition: len(result) == 0 || result[0] <= 0.01
+      failureCondition: len(result) > 0 && result[0] > 0.01
       failureLimit: 3
+      inconclusiveLimit: 10
       provider:
         prometheus:
           address: http://prometheus.monitoring:9090
           query: |
-            sum(rate(http_requests_total{status=~"5.*", service="payment-service"}[1m]))
-            /
-            sum(rate(http_requests_total{service="payment-service"}[1m]))
+            (
+              sum(rate(http_requests_total{status=~"5.*", service="payment-service"}[1m]))
+              /
+              sum(rate(http_requests_total{service="payment-service"}[1m]))
+            )
+            and on()
+            # 最小母数ガード：1分あたり600リクエスト（毎秒10件）未満なら判定しない
+            (sum(rate(http_requests_total{service="payment-service"}[1m])) > 10)
 ```
 
 上記の2つのYAMLマニフェストにおける主要行の対応関係と連動フローは以下の通りである。
@@ -103,7 +112,7 @@ spec:
 カナリア自動ロールバックを実運用に乗せる際、現場が直面する2つの落とし穴が「一時的なネットワーク瞬断や少数リクエスト時のスパイクによる偽陽性（誤ロールバック）」と「リリース完了後に放置されたフィーチャーフラグの負債化」である。これらを防ぐため、以下の2つの運用規律をパイプラインに組み込む。
 
 1. **最小リクエスト数閾値と複合条件による偽陽性抑制**:
-   深夜帯などで1分間のリクエスト総数がわずか5件しかない場合、たまたま1件の通信エラーが起きただけでエラー率が20%と算出され、不要なロールバックが発火してしまう。これを防ぐため、AnalysisTemplateのPrometheusクエリには必ず「最小母数ガード（例: `sum(rate(http_requests_total[1m])) > 10` かつエラー率 > 1%）」を設定する。さらに `interval: 1m` / `failureLimit: 3`（3分間連続で閾値超過した場合のみロールバック）という持続性条件を組み合わせることで、外形監視の瞬断等のノイズを完全に吸収する。
+   深夜帯などで1分間のリクエスト総数がわずか5件しかない場合、たまたま1件の通信エラーが起きただけでエラー率が20%と算出され、不要なロールバックが発火してしまう。これを防ぐため、AnalysisTemplateのPrometheusクエリには必ず「最小母数ガード（例: `sum(rate(http_requests_total[1m])) > 10` かつエラー率 > 1%）」を設定する。さらに `interval: 1m` / `failureLimit: 3`（3分間連続で閾値超過した場合のみロールバック）という持続性条件を組み合わせることで、外形監視の瞬断等のノイズを大幅に抑えられる。15.2.1の `AnalysisTemplate` には、この最小母数ガードを `and on()` で組み込んでいる。トラフィックがゼロのときに `NaN` を失敗として数えないよう、空の結果を判定保留として扱う点も重要である。
 2. **フィーチャーフラグのTTL（有効期限）と自動クリーンアップ**:
    100%全開リリースが完了したにもかかわらずコード内に `if (featureFlags.isEnabled("new-checkout"))` の分岐を残し続けると、フラグの組み合わせ爆発によってテスト不能な技術的負債（Flag Debt）が蓄積する。フラグ作成時にはメタデータとして `expires_at`（原則30日以内）を必須定義させ、100%ロールアウトから14日経過したフラグはCIのLinter（またはAIリファクタリングBot）が検知し、旧コードパスごと削除するPRを自動生成するライフサイクルを徹底する。
 
@@ -205,7 +214,7 @@ def generate_postmortem_draft(slack_chat_history, monitoring_alerts):
     payload = {
         "contents": [{"role": "user", "parts": [{"text": f"{system_prompt}\n\n{user_content}"}]}]
     }
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')}:generateContent"
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),

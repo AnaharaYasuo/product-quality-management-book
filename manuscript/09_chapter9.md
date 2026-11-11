@@ -30,7 +30,7 @@ flowchart TD
 単体テストの資産価値を測るためには、以下の品質要件を満たしているかを監査する。
 
 - **決定論的実行（Determinism）**:
-  外部I/O（ネットワーク、ファイルシステム、DB）を完全に遮断し、何度実行しても同一の結果が得られること。
+  外部I/O（ネットワーク、ファイルシステム、DB）を遮断（モック化）し、何度実行しても同一の結果が得られること。
 - **高速性（Sub-millisecond Execution）**:
   1テストケースあたり数ミリ秒で完了し、数千件のスイート全体でも数秒以内で終了すること。開発者の思考ループ（Red-Green-Refactor）を阻害しないことが維持される。
 - **アサーションの明確性と単一関心事**:
@@ -159,7 +159,7 @@ sequenceDiagram
 
 > **計算式**: `ミューテーションスコア (%) = (Killed Mutants [殺害された変異体数] ÷ Total Mutants [生成された全変異体数]) × 100`
 
-高い信頼性が求められる開発現場では、コアなドメインロジックにおいて**ミューテーションスコア75%以上（極めてクリティカルな金融・医療ドメインでは85%以上）**を要求する。
+高い信頼性が求められる開発現場では、コアなドメインロジックにおいて**ミューテーションスコア75%以上（決済・認証・金融・医療などTier 1領域では80%以上、第22章参照）**を出発点の目安とする。
 
 ```json
 {
@@ -215,7 +215,7 @@ mutmut results  # 生き残った変異体IDの一覧を表示し、mutmut show 
 
 ## 9.4 Flakyテスト（不安定なテスト）の静的検出と排除プロトコル
 
-Flakyテストとは、「コードを一切変更していないにもかかわらず、ある時はPassし、ある時はFailする非決定論的（Non-deterministic）なテスト」を指する。
+Flakyテストとは、「コードを一切変更していないにもかかわらず、ある時はPassし、ある時はFailする非決定論的（Non-deterministic）なテスト」を指す。
 FlakyテストがCIに1つでも混入すると、開発者はCIがRedになっても「またいつものFlakyだろう」と無視して再実行（Re-run）を連打するようになる。これにより、本物のバグによるCI失敗が見逃され、品質ゲートは完全に崩壊する。
 
 ### 1. Flakyテストを生み出す3大要因
@@ -225,7 +225,7 @@ Flakyテストの根本原因は、テストが実行環境の暗黙的な前提
 1. **非同期処理のタイミング依存（Race Conditions）**:
    `sleep(1000)` 等の固定時間スリープに依存した待機。CIランナーの負荷によって処理時間が1秒を超えた瞬間にFailする。常に条件成立を能動的にポーリング監視する動的待機（`waitFor` / `eventually`）へ書き換える必要がある。
 2. **共有状態の汚染（Shared State & Order Dependency）**:
-   テスト間でグローバル変数、シングルトンインスタンス、DBテーブルのデータを共有し、テストの実行順序によって合否が変わる現象である。テストランナーの実行順序をランダム化（Shuffle mode）することで潜在的な依存を炙り出する。
+   テスト間でグローバル変数、シングルトンインスタンス、DBテーブルのデータを共有し、テストの実行順序によって合否が変わる現象である。テストランナーの実行順序をランダム化（Shuffle mode）することで潜在的な依存を炙り出す。
 3. **外部リソース・環境依存（Time/Network/TimeZone）**:
    テスト実行時のシステム時刻（`Date.now()`）やタイムゾーン、外部インターネット接続に依存しているケースである。時刻モック（Timecop / Jest fakeTimers）とネットワーク仮想化（WireMock / MSW）の適用を義務付ける。
 
@@ -258,7 +258,7 @@ flowchart TD
 ## 9.5 AI確証実践：Meta「TestGen-LLM / Assured Offline LLMSE」の完全再現
 
 2024年、Meta社の研究チーム（Alshahwan et al.）は国際会議FSE 2024にて画期的な論文（*Automated Unit Test Improvement using Large Language Models at Meta*）を発表した。さらに2025年には、変異テスト（Mutation Testing）とLLMを融合させた後続システム「ACH」（*Mutation-Guided LLM-based Test Generation at Meta*）へと発展させている。
-Metaが開発した「TestGen-LLM」は、人間がレビューする前に**3重の厳格な検証フィルター（Assured LLM-based Software Engineering）**を適用する。これにより、ノイズや幻覚を完全に排除した高品質なPRのみを自動生成する。
+Metaが開発した「TestGen-LLM」は、人間がレビューする前に**3重の厳格な検証フィルター（Assured LLM-based Software Engineering）**を適用する。これにより、ノイズや幻覚を除いた高品質なPRのみを自動生成する。
 
 ```mermaid
 flowchart TD
@@ -287,71 +287,96 @@ Metaが採用した3重フィルターは、以下の段階的ゲートウェイ
 
 ### 2. 実践：PythonによるMeta式TestGen-LLMパイプラインの実装
 
-以下は、このMeta方式をオープンソース環境（pytest / coverage.py）上で完全再現した自律型テスト生成・確証スクリプトである。
+以下は、このMeta方式の骨格をオープンソース環境（pytest / coverage.py）で再現した**簡略実装**である。論文の仕組みをそのまま再現したものではなく、LLMの呼び出し部分は差し替え可能な関数として切り出している。第2フィルターでは、候補テストを含む**全テストスイート**を複数回実行し、1回でも失敗すればFlakyまたは既存の振る舞いの破壊とみなして破棄する。
 
 ```python
 # tools/assured_testgen.py
-import subprocess
 import json
+import os
+import subprocess
 import sys
+from pathlib import Path
 
-def run_cmd(cmd):
-    p = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=False)
-    return p.returncode, p.stdout, p.stderr
+REPEAT_RUNS = 5   # Flaky判定のための反復回数
+TIMEOUT_SEC = 300
 
-def get_baseline_coverage():
-    run_cmd("pytest --cov=src --cov-report=json:coverage_base.json")
-    with open("coverage_base.json") as f:
-        data = json.load(f)
-    return data["totals"]["percent_covered"]
 
-def run_meta_three_filters(candidate_test_file: str, base_coverage: float) -> bool:
-    print(f"\n[Meta TestGen Pipeline] テスト候補の検証開始: {candidate_test_file}")
+def run_cmd(cmd: list[str]) -> tuple[int, str]:
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=TIMEOUT_SEC)
+        return p.returncode, p.stdout + p.stderr
+    except subprocess.TimeoutExpired:
+        return 124, "timeout"
+
+
+def measure_coverage(report: str) -> float | None:
+    code, _ = run_cmd(["pytest", "-q", "--cov=src", f"--cov-report=json:{report}"])
+    try:
+        return json.loads(Path(report).read_text(encoding="utf-8"))["totals"]["percent_covered"] if code in (0, 1) else None
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        return None
+
+
+def generate_candidate(target_module: str, out_path: Path) -> bool:
+    """LLMでテスト候補を生成する。実装は利用するLLMに合わせて差し替える。
+
+    既存テストをfew-shot例として渡し、未カバー行を狙ったテストを1〜2件だけ生成させるのが要点。
+    ここでは、候補ファイルが事前に用意されていればそれを使う。
+    """
+    return out_path.exists()
+
+
+def run_meta_filters(candidate: Path, base_coverage: float) -> bool:
+    print(f"\n[TestGen Pipeline] テスト候補の検証開始: {candidate}")
 
     # 第1フィルター: ビルド/構文検証
-    code, _out, err = run_cmd(f"python -m py_compile {candidate_test_file}")
+    code, out = run_cmd([sys.executable, "-m", "py_compile", str(candidate)])
     if code != 0:
-        print(f"❌ Filter 1 (Build) Failed: 構文エラーまたはコンパイル失敗: {err.strip()}")
-        return False
-    print("✅ Filter 1 (Build) Passed.")
-
-    # 第2フィルター: 実行・リグレッション検証
-    code, out, err = run_cmd(f"pytest {candidate_test_file}")
-    if code != 0:
-        print(f"❌ Filter 2 (Execution) Failed: テスト実行が失敗しました:\n{out}{err}")
-        return False
-    print("✅ Filter 2 (Execution) Passed: 全テストがグリーン。")
-
-    # 第3フィルター: カバレッジ純増検証
-    run_cmd("pytest --cov=src --cov-report=json:coverage_new.json")
-    with open("coverage_new.json") as f:
-        new_data = json.load(f)
-    new_coverage = new_data["totals"]["percent_covered"]
-
-    if new_coverage <= base_coverage:
-        print(f"❌ Filter 3 (Coverage) Failed: カバレッジ純増なし ({base_coverage}% -> {new_coverage}%)。")
+        print(f"❌ Filter 1 (Build): {out.strip()}")
         return False
 
-    print(f"🎉 Filter 3 (Coverage) Passed! カバレッジが向上しました: {base_coverage:.2f}% -> {new_coverage:.2f}%")
+    # 第2フィルター: 既存テストを含む全件を反復実行（Flaky・回帰の排除）
+    for i in range(REPEAT_RUNS):
+        code, out = run_cmd(["pytest", "-q", "-p", "no:randomly"])
+        if code != 0:
+            print(f"❌ Filter 2 (Execution/Flaky): {i + 1}回目の全件実行で失敗しました。")
+            return False
+
+    # 第3フィルター: カバレッジ純増
+    new_coverage = measure_coverage("coverage_new.json")
+    if new_coverage is None or new_coverage <= base_coverage:
+        print(f"❌ Filter 3 (Coverage): 純増なし ({base_coverage:.2f}% -> {new_coverage}%)")
+        return False
+    print(f"✅ 全フィルター通過: {base_coverage:.2f}% -> {new_coverage:.2f}%")
     return True
 
+
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("テストファイル候補を指定してください。")
+    if len(sys.argv) < 3:
+        print("使い方: assured_testgen.py <対象モジュール> <候補テストの出力先>")
         sys.exit(1)
 
-    candidate = sys.argv[1]
-    base_cov = get_baseline_coverage()
-    success = run_meta_three_filters(candidate, base_cov)
+    candidate_path = Path(sys.argv[2])
+    hidden = candidate_path.with_suffix(".pending")
+    # ベースラインは候補テストを除外した状態で測る
+    if candidate_path.exists():
+        candidate_path.rename(hidden)
+    base = measure_coverage("coverage_base.json")
+    if hidden.exists():
+        hidden.rename(candidate_path)
 
-    if not success:
-        print("\n判定: 破棄（PRを作成しません）。")
+    if base is None or not generate_candidate(sys.argv[1], candidate_path):
+        print("❌ ベースライン計測または候補生成に失敗しました。")
         sys.exit(1)
-    print("\n判定: 合格（人間へのPR作成を承認します）。")
-    sys.exit(0)
+
+    ok = run_meta_filters(candidate_path, base)
+    if not ok and os.environ.get("KEEP_REJECTED") != "1":
+        candidate_path.unlink(missing_ok=True)  # 破棄した候補はリポジトリに残さない
+    print("\n判定:", "合格（人間へのPR作成を承認します）" if ok else "破棄（PRを作成しません）")
+    sys.exit(0 if ok else 1)
 ```
 
-※実運用における堅牢性への補足：上記のサンプルスクリプトでは理解しやすさのため例外処理を簡略化していますが、本番CIで稼働させる際は以下の2点を組み込むとより堅牢になる。第1に、LLMが生成した無限ループコードによるハングアップを防ぐため、`subprocess.run(..., timeout=30)` でタイムアウト遮断を設ける。第2に、テストランナーの異常終了（Exit Code 2以上）により `coverage_new.json` が生成されないケースへの対策である。`FileNotFoundError` や `JSONDecodeError` を `try...except` で捕捉し、安全に候補破棄（False返却）へ倒する。
+※上記の実装では、LLMが生成した無限ループによるハングを防ぐためにタイムアウトを設け、カバレッジレポートが生成されない場合は候補を破棄する側に倒している。後続の `ACH` で追加された変異テストフィルター（第24章）を加える場合は、第3フィルターの後に変更対象ファイルへの差分変異テストを挟む。
 
 ### 3. 人間レビュアーとAI生成テストの協調ワークフロー
 
@@ -385,7 +410,7 @@ Metaの研究では、TestGen-LLMが提出したPRのうち、実に**73%が人�
 
 | 検証カテゴリ | 検査項目 | 合格基準（Pass） | 不合格基準（Fail / ブロック） |
 | :--- | :--- | :--- | :--- |
-| **テスト有効性** | ミューテーションスコア（Kill率） | コアドメインで75%以上（推奨80%以上） | スコア70%未満（アサーション不足） |
+| **テスト有効性** | ミューテーションスコア（Kill率） | コアドメインで75%以上（Tier 1領域は80%以上） | コアドメインで75%未満、Tier 1領域で80%未満 |
 | **テスト安定性** | Flakiness発生率 | CI連続実行（10回）で合否反転ゼロ | 1回でも非決定論的失敗が観測されたテスト |
 | **テスト構造** | アサーション密度 | すべてのテストケースに具体的な検証文が存在 | assertが存在しない、または例外非発生のみの確認 |
 | **保守性** | 実行時間（テストスイート速度） | 単体テスト全件実行が3分以内 | 10分以上を要する肥大化したテストスイート |

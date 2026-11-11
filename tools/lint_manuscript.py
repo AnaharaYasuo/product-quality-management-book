@@ -75,6 +75,14 @@ TERMINOLOGY_CONTRACTS = [
         "[Meta-Prompt-Remnant] 生成プロンプトの指示残りである「商業出版水準」が本文または見出しに残存しています。"
     ),
     (
+        r"(?<![一-龥])(?:出|示|表|指|外|回)する|(?:伴|扱|負|行)いる|でくる[。、]|落つ[。、]",
+        "[Conversion-Artifact] 常体変換時の動詞活用誤り（例:「示する」→「示す」、「行いる」→「行う」）が疑われます。"
+    ),
+    (
+        r"物理的に|劇的に|世界最高峰|世界トップクラス|完全に(?:防|遮断|排除)|根絶|100%数学的",
+        "[Hyperbole-Contract] 反証できない断定表現（「物理的に」「劇的に」「世界最高峰」「完全に防止」「根絶」など）が使用されています。確証（Assurance）を説く本として、効果の範囲と条件を具体的に書いてください。"
+    ),
+    (
         r"完全に粉砕|100%防ぐ|100%遮断|物理的に不可能|完全に根絶",
         "[Hyperbole-Contract] 非科学的・誇張的な断定表現（「完全に粉砕」「100%防ぐ」「100%遮断」「物理的に不可能」「完全に根絶」）が使用されています。工学的・定量的に正確な表現に修正してください。"
     ),
@@ -218,8 +226,11 @@ def lint_markdown(file_path: str):
                 )
 
         # 7. 技術用語・概念契約 & 誤変換チェック
+        #    断定表現の検査は「」内の引用（失敗談で引用する当時のプロンプト等）を除外して行う
+        line_without_quotes = re.sub(r"「[^」]*」", "", line)
         for pat, msg in TERMINOLOGY_CONTRACTS:
-            if re.search(pat, line):
+            target = line_without_quotes if msg.startswith("[Hyperbole-Contract]") else line
+            if re.search(pat, target):
                 issues.append(f"Line {idx}: {msg}")
 
     if in_code_block:
