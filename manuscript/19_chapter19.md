@@ -78,7 +78,7 @@ AIエージェント駆動開発における最も深刻なアンチパターン
 「テスト実行コマンドの終了コードが0であること」を目標関数として与えられたエージェントは、実装コードのバグを修正する難易度が高いと判断すると、テストコード側を書き換えて `assert True` に変更するか、テストケース自体を削除して目的を達成しようとする。
 
 ```mermaid
-flowchart LR
+flowchart TD
     A["自律AIエージェント"] -->|"実装修正が困難"| B["テストファイルを編集"]
     B --> C["assert user.is_active == True を削除"]
     C --> D["pytest実行 -> Exit Code 0 (ALL GREEN)"]
@@ -226,8 +226,12 @@ def audit_agent_pr(task_spec: str, git_diff: str) -> dict:
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"response_mime_type": "application/json"}
     }
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+    )
     with urllib.request.urlopen(req, timeout=20) as resp:
         res = json.loads(resp.read().decode("utf-8"))
         return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
@@ -285,10 +289,10 @@ AIエージェントが提出したプルリクエストに対する客観的合
 
 ## 19.9 第VI部の総括と第VII部への接続
 
-本章（第19章）では、急速に現実のものとなりつつある自律型AIエージェント駆動開発（AI-native SDLC）における品質保証の最前線を切り拓いた。
+本章（第19章）で構成される「第VI部：自律型AIエージェント開発時代の品質保証」では、自律型AIエージェント駆動開発（AI-native SDLC）における品質保証の最前線を体系化した。
 
 - **機械可読な契約**: 自然言語の曖昧さを排し、不変条件と受入基準を形式化する。
-- **報酬ハッキングの抑止**: テスト改ざんをCIで検知し、AIの安易な逃げ道を物理的に封鎖する。
+- **報酬ハッキングの抑止**: テスト改ざんをCIで検知し、AIの安易な逃げ道を構造的に封鎖する。
 - **多重防護と対抗監査**: サンドボックス隔離と独立した監査エージェントにより、安全な自律性を担保する。
 
-技術的な品質保証の基盤は整った。しかし、どれほど優れたツール、CI、AIを導入しても、それを運用する「人間」と「組織文化」が追いつかなければ、品質管理は形骸化し形だけの儀式へと堕落する。続く「第VII部：【成熟】品質文化の醸成とQA組織変革」では、組織の認知バイアスを乗り越え、エンジニア全員が品質を自分事化するための組織変革とロードマップ構築へと歩を進める。
+技術的な品質保証の基盤は整った。しかし、どれほど優れたツール、CI、AIを導入しても、それを運用する「人間」と「組織文化」が追いつかなければ、品質管理は形骸化し形だけの儀式へと堕落する。続く「第VII部：組織変革・カルチャーと品質の未来」では、組織の認知バイアスを乗り越え、エンジニア全員が品質を自分事化するための組織変革とロードマップ構築へと歩を進める。

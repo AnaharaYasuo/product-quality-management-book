@@ -69,7 +69,7 @@ flowchart LR
 
 どの機能にどの程度のテスト工数を投じるべきかを客観的に決定するため、「リスクスコア（Risk Exposure）」を数式化して合意する。
 
-$$ \text{Risk Score} = \text{Severity（影響度: 1〜5）} \times \text{Likelihood（発生確率: 1〜5）} $$
+> **リスクスコア算出式**: `Risk Score = Severity（影響度: 1〜5） × Likelihood（発生確率: 1〜5）`
 
 ### リスクマトリクスと検証強度の決定
 
@@ -141,7 +141,7 @@ Tier 1領域では、単なるコードカバレッジではなく「変異ス�
 - **リソース配分**: 新規機能開発時にテスト作成に割く工数は全体の20〜30%を目安とし、過剰なモック化によるメンテナンスコストの肥大化を避ける。
 - **Flakyテストの許容度**: Tier 2のテストが不安定化した場合は、即座にクランタイン（隔離）し、メインブランチのマージを不必要にブロックさせない規律を徹底する。
 
-### 2. 低リスク領域（Tolerable Zone / Fast-Delivery）
+### 3. 低リスク領域（Tolerable Zone / Fast-Delivery）
 
 - **対象**: 社内CS向け管理画面の検索フィルタ、マーケティングLPの文言、新機能のA/Bテスト用バナー。
 - **設計方針**: 「万一バグが出ても即座にHotfixまたはフラグOFFで切り戻せば実害は極小」。テスト作成に時間をかけるより、フィーチャートグルとSentryによる即時検知を優先し、爆速でデプロイする。
@@ -197,8 +197,12 @@ def select_optimal_tests(changed_files: list[str]) -> list[str]:
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {"response_mime_type": "application/json"}
         }
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+        )
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 res_data = json.loads(resp.read().decode("utf-8"))
@@ -228,7 +232,7 @@ if __name__ == "__main__":
 
 1. **APIキーの保護とフォークPRでの決定論的フォールバック**: 外部フォークからのPRや `GEMINI_API_KEY` が未設定・レートリミット超過の環境では、ステップ1の「決定論的なGit差分ファイル名マッピング（空の場合は `tests/unit` 全件実行）」へ自動フォールバックする。これにより、APIキーの外部露出リスクとCI停止をゼロにする。
 2. **プロンプト投入ファイル数の上限キャップ（トークン制限対策）**: テストファイル数が数千件規模になると、`all_tests` リストだけでトークン長が増大しAPIコストが嵩むため、ディレクトリプレフィックスやASTのimportグラフで一次フィルタリングした上位100候補のみをLLMへ渡す。
-3. **マージ直前（Merge Queue）でのフルスイート実行**: AIによるテスト間引きは、あくまで「機能ブランチでの高速フィードバック用（1〜2分）」と位置付ける。`main` ブランチへの最終マージ時（GitHub Merge Queue）およびTier 1（即死領域）変更時には必ず全テストスイートを実行する二段構えとすることで、予測漏れ（False Negative）によるバグ流出を100%防ぐことができる。
+3. **マージ直前（Merge Queue）でのフルスイート実行**: AIによるテスト間引きは、あくまで「機能ブランチでの高速フィードバック用（1〜2分）」と位置付ける。`main` ブランチへの最終マージ時（GitHub Merge Queue）およびTier 1（即死領域）変更時には必ず全テストスイートを実行する二段構えとすることで、予測漏れ（False Negative）によるバグ流出を決定論的に防止できる。
 
 ---
 

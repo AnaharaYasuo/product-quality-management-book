@@ -2,9 +2,10 @@
 """
 tools/validate_mermaid.py
 原稿（manuscript/*.md）内の全Mermaidコードブロックを抽出し、
-本物のMermaidエンジン（Playwright + Mermaid v10）で構文パース・SVG描画検証を行う品質ゲートスクリプト。
+本物のMermaidエンジン（Playwright + Mermaid v10）で構文パース・SVG描画検証・横幅可読性検査を行う品質ゲートスクリプト。
 
-1つでも Syntax error が検出された場合は、該当ファイル名・行番号・エラー詳細を出力し Exit Code 1 で終了する。
+1つでも Syntax error または横幅過大（viewBox width > 2200px による文字潰れ）が検出された場合は、
+該当ファイル名・行番号・エラー詳細を出力し Exit Code 1 で終了する。
 """
 
 import asyncio
@@ -88,6 +89,14 @@ async def validate_blocks_with_mermaid(blocks: List[Dict[str, Any]]) -> int:
                     if (svg.includes('Syntax error in text') || svg.includes('class="error-icon"')) {
                         return { ok: false, error: 'Rendered SVG contains Syntax error' };
                     }
+                    const m = svg.match(/viewBox="([^"]+)"/);
+                    if (m) {
+                        const parts = m[1].trim().split(/[\\s,]+/);
+                        const w = parseFloat(parts[2]);
+                        if (w > 2200) {
+                            return { ok: false, error: 'Diagram is too wide (viewBox width=' + Math.round(w) + 'px > 2200px); convert flowchart LR / horizontal subgraph to vertical flowchart TD so text remains readable on A4 PDF.' };
+                        }
+                    }
                     return { ok: true };
                 } catch (err) {
                     return { ok: false, error: err && err.message ? err.message : String(err) };
@@ -96,7 +105,7 @@ async def validate_blocks_with_mermaid(blocks: List[Dict[str, Any]]) -> int:
 
             if not res["ok"]:
                 error_count += 1
-                print(f"❌ [Mermaid Syntax Error] {b['file']}:{b['start_line']}-{b['end_line']}")
+                print(f"❌ [Mermaid Validation Error] {b['file']}:{b['start_line']}-{b['end_line']}")
                 print(f"   Reason: {res['error']}")
                 print("   Code:")
                 for l_idx, code_line in enumerate(b["code"].splitlines(), b["start_line"] + 1):
@@ -111,7 +120,7 @@ def main():
     target_files = sorted(Path("manuscript").glob("*.md"))
     blocks = extract_mermaid_blocks(target_files)
 
-    print("=== Mermaid Diagram Syntax Validator ===")
+    print("=== Mermaid Diagram Syntax & Readability Width Validator ===")
     print(f"Scanning {len(blocks)} Mermaid diagrams across {len(target_files)} manuscript files...\n")
 
     if not blocks:
@@ -121,10 +130,10 @@ def main():
     error_count = asyncio.run(validate_blocks_with_mermaid(blocks))
 
     if error_count > 0:
-        print(f"\nFAILED: {error_count} / {len(blocks)} Mermaid diagram(s) failed syntax validation.")
+        print(f"\nFAILED: {error_count} / {len(blocks)} Mermaid diagram(s) failed syntax or width validation.")
         sys.exit(1)
     else:
-        print(f"PASSED: All {len(blocks)} Mermaid diagrams parsed and rendered cleanly with zero syntax errors.")
+        print(f"PASSED: All {len(blocks)} Mermaid diagrams parsed and rendered cleanly within readable width bounds.")
         sys.exit(0)
 
 

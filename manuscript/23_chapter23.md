@@ -174,9 +174,9 @@ def audit_semantic_mock_abuse_with_llm(test_code: str, api_key: str) -> dict:
         '出力形式: {"is_hollow_hack": true/false, "reason": "理由"}'
     )
     req = urllib.request.Request(
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
         data=json.dumps({"contents": [{"role": "user", "parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}).encode("utf-8"),
-        headers={"Content-Type": "application/json"}
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
     )
     with urllib.request.urlopen(req, timeout=15) as resp:
         res = json.loads(resp.read().decode("utf-8"))

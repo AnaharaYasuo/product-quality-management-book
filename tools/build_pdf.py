@@ -3,10 +3,12 @@
 tools/build_pdf.py
 全27原稿ファイル（manuscript/*.md）から印刷・閲覧用のA4版PDFおよびプレビューHTMLを生成し、
 生成されたDOMおよびPDFに対して以下の決定論的E2Eスモークテストを実施する：
-1. Markdown変換時にMermaidブロック（`<|--` 等の記号含む）が破損しないようプレースホルダ退避＋HTMLエスケープ方式を採用。
-2. Playwright（Headless Chromium）上でMermaid v10による全図解のSVGレンダリングを実行。
-3. DOM上の全 `.mermaid-container` を検査し、`Syntax error in text` や未描画SVGが1件でもあれば即座にビルド失敗（Exit Code 1）とする。
-4. 全27ファイル（はじめに＋第1章〜第25章＋おわりに）のH1見出しが存在することを検証する。
+1. Markdown変換時にMermaidブロックおよびフェンス付きコードブロックを退避し、
+   コード例内部の `#` や `##` がH1/H2見出しや目次に誤変換されることを完全に防止する。
+2. 康熙部首（U+2F00..U+2FDF）およびCJK互換漢字を標準統合漢字へ正規化し、標準フォントを優先指定する。
+3. Playwright（Headless Chromium）上でMermaid v10による全図解のSVGレンダリングを実行。
+4. DOM上の全 `.mermaid-container` を検査し、`Syntax error in text` や未描画SVG、または横幅過大（viewBox width > 2200px）の図解があればビルド失敗（Exit Code 1）とする。
+5. `<pre><code>` 内部に `<h1` や `<h2` タグが混入していないこと、および未変換の `$$` 数式や康熙部首が0件であることをE2E検証する。
 """
 
 import argparse
@@ -14,6 +16,7 @@ import asyncio
 import html
 import re
 import sys
+import unicodedata
 from pathlib import Path
 import markdown
 
@@ -23,6 +26,18 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+
+
+def normalize_kangxi_and_compat_cjk(text: str) -> str:
+    """康熙部首（U+2F00..U+2FDF）およびCJK互換漢字（U+F900..U+FAFF）のみを標準統合漢字へ正規化する。"""
+    out = []
+    for ch in text:
+        cp = ord(ch)
+        if (0x2F00 <= cp <= 0x2FDF) or (0x2E80 <= cp <= 0x2EFF) or (0xF900 <= cp <= 0xFAFF):
+            out.append(unicodedata.normalize("NFKC", ch))
+        else:
+            out.append(ch)
+    return "".join(out)
 
 
 def build_combined_html(repo_dir: Path, html_out: Path) -> int:
@@ -36,7 +51,7 @@ def build_combined_html(repo_dir: Path, html_out: Path) -> int:
     mermaid_pattern = re.compile(r"```mermaid\s*\n(.*?)\n```", re.DOTALL)
 
     for idx, f in enumerate(md_files):
-        raw_md = f.read_text(encoding="utf-8")
+        raw_md = normalize_kangxi_and_compat_cjk(f.read_text(encoding="utf-8"))
 
         # 1. Mermaidブロックをプレースホルダに退避（markdownパーサーが <|-- 等をHTMLタグと誤認して破壊するのを防止）
         mermaid_store = []
@@ -51,16 +66,53 @@ def build_combined_html(repo_dir: Path, html_out: Path) -> int:
 
         md_without_mermaid = mermaid_pattern.sub(stash_mermaid, raw_md)
 
-        # 2. H1・H2見出しに目次ジャンプ用IDを付与
-        h1_match = re.search(r"^#\s+(.+)$", md_without_mermaid, re.MULTILINE)
+        # 1.5. すべてのフェンス付きコードブロック（```...``` / ````...````）を一時退避
+        #      （コード例内部の `#` や `##` がH1/H2見出しや目次に誤変換されるのを防ぐため）
+        code_fence_store = []
+        lines_stashed = []
+        in_fence = False
+        fence_marker = ""
+        current_fence_lines = []
+
+        for line in md_without_mermaid.splitlines():
+            s = line.strip()
+            m = re.match(r"^(`{3,}|~{3,})(.*)$", s)
+            if m:
+                marker, lang = m.group(1), m.group(2).strip()
+                if not in_fence:
+                    in_fence = True
+                    fence_marker = marker
+                    current_fence_lines = [line]
+                    continue
+                elif len(marker) >= len(fence_marker) and marker[0] == fence_marker[0] and lang == "":
+                    current_fence_lines.append(line)
+                    token = f"@@CODE_FENCE_{len(code_fence_store)}@@"
+                    code_fence_store.append("\n".join(current_fence_lines))
+                    lines_stashed.append(token)
+                    in_fence = False
+                    fence_marker = ""
+                    current_fence_lines = []
+                    continue
+            if in_fence:
+                current_fence_lines.append(line)
+            else:
+                lines_stashed.append(line)
+
+        if current_fence_lines:
+            lines_stashed.extend(current_fence_lines)
+
+        md_stashed = "\n".join(lines_stashed)
+
+        # 2. H1・H2見出しに目次ジャンプ用IDを付与（コードブロック外の真の見出しのみ対象）
+        h1_match = re.search(r"^#\s+(.+)$", md_stashed, re.MULTILINE)
         ch_id = f"chapter-{idx:02d}"
         title_text = f.stem
         if h1_match:
             title_text = h1_match.group(1).strip()
-            md_without_mermaid = re.sub(
+            md_stashed = re.sub(
                 r"^#\s+(.+)$",
                 f'<h1 id="{ch_id}">\\1</h1>',
-                md_without_mermaid,
+                md_stashed,
                 count=1,
                 flags=re.MULTILINE,
             )
@@ -73,8 +125,14 @@ def build_combined_html(repo_dir: Path, html_out: Path) -> int:
             h2_list.append((h2_id, h2_title))
             return f'<h2 id="{h2_id}">{h2_title}</h2>'
 
-        md_without_mermaid = re.sub(r"^##\s+(.+)$", h2_repl, md_without_mermaid, flags=re.MULTILINE)
+        md_stashed = re.sub(r"^##\s+(.+)$", h2_repl, md_stashed, flags=re.MULTILINE)
         toc_items.append((ch_id, title_text, h2_list))
+
+        # 2.5. 退避したフェンス付きコードブロックを復元してからMarkdownパーサーへ渡す
+        for c_idx, c_block in enumerate(code_fence_store):
+            md_stashed = md_stashed.replace(f"@@CODE_FENCE_{c_idx}@@", c_block)
+
+        md_without_mermaid = md_stashed
 
         # 3. Markdown -> HTML 変換
         html_body = markdown.markdown(
@@ -119,7 +177,7 @@ def build_combined_html(repo_dir: Path, html_out: Path) -> int:
 }}
 
 body {{
-  font-family: "Yu Gothic", "YuGothic", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Meiryo", sans-serif;
+  font-family: "Noto Sans CJK JP", "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
   line-height: 1.75;
   color: #222;
   margin: 0;
@@ -324,6 +382,14 @@ th {{
 async def render_and_smoke_test_pdf(html_out: Path, pdf_out: Path, expected_mermaid_count: int):
     from playwright.async_api import async_playwright
 
+    # 静的HTML検証：コードブロック内の見出し誤変換・康熙部首・未変換LaTeX数式の検査
+    html_text = html_out.read_text(encoding="utf-8")
+    kangxi_hits = re.findall(r"[\u2E80-\u2FDF\uF900-\uFAFF]", html_text)
+    if kangxi_hits:
+        raise RuntimeError(f"Smoke test failed: {len(kangxi_hits)} Kangxi/compatibility CJK character(s) found in HTML!")
+    if "$$" in html_text:
+        raise RuntimeError("Smoke test failed: unrendered LaTeX display math '$$' found in HTML!")
+
     async with async_playwright() as p:
         try:
             browser = await p.chromium.launch(headless=True)
@@ -337,24 +403,46 @@ async def render_and_smoke_test_pdf(html_out: Path, pdf_out: Path, expected_merm
         await page.goto(html_out.as_uri(), wait_until="networkidle", timeout=90000)
         await page.wait_for_timeout(4000)
 
-        # 決定論的E2Eスモークテスト：全Mermaid図解の正常レンダリング＆全章セクション存在確認
+        # 決定論的E2Eスモークテスト：全Mermaid図解の正常レンダリング・横幅上限・コード内見出し混入ゼロ確認
         audit = await page.evaluate("""() => {
             const sections = document.querySelectorAll('section.chapter-section');
             const containers = Array.from(document.querySelectorAll('.mermaid-container'));
             const errors = [];
+            const wideDiagrams = [];
             containers.forEach((c, idx) => {
                 const txt = c.innerText || '';
                 const html = c.innerHTML || '';
+                const sec = c.closest('section.chapter-section');
+                const src = sec ? sec.getAttribute('data-source') : 'unknown';
                 if (txt.includes('Syntax error') || html.includes('Syntax error') || html.includes('class="error-icon"') || !html.includes('<svg')) {
-                    const sec = c.closest('section.chapter-section');
-                    const src = sec ? sec.getAttribute('data-source') : 'unknown';
                     errors.push({ index: idx + 1, source: src, snippet: txt.slice(0, 120) });
+                } else {
+                    const svg = c.querySelector('svg');
+                    if (svg) {
+                        const vb = svg.getAttribute('viewBox');
+                        if (vb) {
+                            const parts = vb.trim().split(/[\\s,]+/);
+                            const w = parseFloat(parts[2]);
+                            if (w > 2200) {
+                                wideDiagrams.push({ index: idx + 1, source: src, width: Math.round(w) });
+                            }
+                        }
+                    }
+                }
+            });
+            const codeBlocks = Array.from(document.querySelectorAll('pre code'));
+            const leakedHeadings = [];
+            codeBlocks.forEach((cb) => {
+                if (cb.innerHTML.includes('<h1 id=') || cb.innerHTML.includes('<h2 id=')) {
+                    leakedHeadings.push(cb.innerText.slice(0, 80));
                 }
             });
             return {
                 sectionCount: sections.length,
                 mermaidCount: containers.length,
-                errors: errors
+                errors: errors,
+                wideDiagrams: wideDiagrams,
+                leakedHeadings: leakedHeadings
             };
         }""")
 
@@ -376,6 +464,16 @@ async def render_and_smoke_test_pdf(html_out: Path, pdf_out: Path, expected_merm
                 print(f"  ❌ Render Error in Diagram #{err['index']} ({err['source']}): {err['snippet']}")
             await browser.close()
             raise RuntimeError(f"Smoke test failed: {len(audit['errors'])} Mermaid diagram(s) had syntax/render errors in combined DOM!")
+
+        if audit["wideDiagrams"]:
+            for wd in audit["wideDiagrams"]:
+                print(f"  ❌ Overly Wide Diagram #{wd['index']} ({wd['source']}): viewBox width={wd['width']}px (> 2200px)")
+            await browser.close()
+            raise RuntimeError(f"Smoke test failed: {len(audit['wideDiagrams'])} Mermaid diagram(s) exceed maximum readable width!")
+
+        if audit["leakedHeadings"]:
+            await browser.close()
+            raise RuntimeError(f"Smoke test failed: {len(audit['leakedHeadings'])} code block(s) contain leaked <h1>/<h2> tags!")
 
         pdf_out.parent.mkdir(parents=True, exist_ok=True)
         await page.pdf(

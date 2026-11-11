@@ -10,6 +10,18 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
+# 00_intro.md で定義された全8部の正式名称（Part Title Contract）
+CANONICAL_PART_TITLES = {
+    "I": "第I部：パラダイムシフトと二大成果物モデル",
+    "II": "第II部：プロダクト成果物の検証・レビュー・監査",
+    "III": "第III部：開発プロセス成果物のバリエーションと品質保証",
+    "IV": "第IV部：動的検証・シフトライト・セキュリティ品質",
+    "V": "第V部：AIプロダクト（非決定論的システム）の品質保証",
+    "VI": "第VI部：自律型AIエージェント開発時代の品質保証",
+    "VII": "第VII部：組織変革・カルチャーと品質の未来",
+    "VIII": "第VIII部：品質のトレードオフ・倫理・現場のリアリズム",
+}
+
 # 各章の正規テーマキーワード定義（次章予告や他章参照が旧構成の草案と食い違っていないかを決定論的に検査）
 CHAPTER_TOPIC_ANCHORS = {
     1: ["確証", "Assurance", "DORA", "ISO/IEC 25010"],
@@ -24,7 +36,7 @@ CHAPTER_TOPIC_ANCHORS = {
     10: ["類型", "ウォーターフォール", "スクラム", "カンバン", "トランクベース"],
     11: ["仕様化", "DoD", "DoR", "テンプレート"],
     12: ["静的検証", "ガードレール", "commitlint", "Danger", "Gatekeeper"],
-    13: ["動的検証", "DORA", "フローメトリクス", "ボトルネック"],
+    13: ["動的検証", "DORA", "フローメトリクス", "ボトルネック", "ジニ係数"],
     14: ["自動テスト", "Testcontainers", "Playwright", "自己修復", "E2E"],
     15: ["シフトライト", "カナリア", "SLO", "エラーバジェット", "ポストモーテム"],
     16: ["サプライチェーン", "SBOM", "SLSA", "Cosign", "TruffleHog", "DevSecOps"],
@@ -46,6 +58,18 @@ def check_structure(file_path):
         content = f.read()
 
     filename = Path(file_path).name
+
+    # 全ファイル対象：部タイトル（第I部〜第VIII部）の正式名称整合性チェック
+    for idx, line in enumerate(content.splitlines(), 1):
+        for m_part in re.finditer(r"第(I|II|III|IV|V|VI|VII|VIII)部：([^」』\n|]+)", line):
+            roman = m_part.group(1)
+            full_ref = f"第{roman}部：{m_part.group(2).strip()}"
+            expected = CANONICAL_PART_TITLES.get(roman)
+            if expected and not full_ref.startswith(expected):
+                issues.append(
+                    f"[DoD-PartTitle] Line {idx}: 第{roman}部の名称が序章（00_intro.md）の定義と不一致です（実際: '{full_ref}' / 正規: '{expected}'）"
+                )
+
     if filename.startswith("00_") or filename.startswith("99_"):
         return issues
 
@@ -138,7 +162,7 @@ def check_structure(file_path):
 
 def main():
     target_files = sorted(glob.glob("manuscript/*.md"))
-    print("=== Commercial Technical Book DoD & Cross-Reference Validator ===")
+    print("=== Commercial Technical Book DoD, Part Title & Cross-Reference Validator ===")
     print(f"Auditing {len(target_files)} manuscript files...\n")
 
     has_errors = False
@@ -155,7 +179,7 @@ def main():
         print("FAILED: Incomplete or non-compliant chapters detected against Commercial Book DoD.")
         sys.exit(1)
     else:
-        print("PASSED: All 25 chapters meet Commercial Book DoD, H1 format, and Cross-Reference standards.")
+        print("PASSED: All 25 chapters meet Commercial Book DoD, Part Title, H1 format, and Cross-Reference standards.")
         sys.exit(0)
 
 

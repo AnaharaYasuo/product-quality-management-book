@@ -66,6 +66,37 @@ AIがどれほど驚異的な速度でコードを生成しようとも、それ
 
 ---
 
+## 付録D：主要参考文献・国際規格・一次出典リスト
+
+本書で参照・引用した国際標準規格、学術論文、公的調査報告書、および技術文献の一覧です。
+
+### 1. 国際標準規格・業界フレームワーク・公的報告書
+
+- **ISO/IEC 25010:2023**: *Systems and software engineering — SQuaRE — Product quality model*, ISO (2023).
+- **ISO/IEC 25019:2023**: *Systems and software engineering — SQuaRE — Quality-in-use model*, ISO (2023).
+- **ISO/IEC 25012:2008**: *Software engineering — SQuaRE — Data quality model*, ISO (2008).
+- **DAMA International**: *DAMA-DMBOK: Data Management Body of Knowledge (2nd Edition)*, Technics Publications (2017).
+- **W3C Recommendation**: *Web Content Accessibility Guidelines (WCAG) 2.2*, W3C (2023).
+- **SLSA v1.0**: *Supply-chain Levels for Software Artifacts Specification v1.0*, OpenSSF / Linux Foundation (2023).
+- **NIST Planning Report 02-3**: G. Tassey, *The Economic Impacts of Inadequate Infrastructure for Software Testing*, NIST (2002).
+- **独立行政法人情報処理推進機構（IPA）**: 『ソフトウェア開発データ白書2022-2023』定量データ分析報告 (2022).
+
+### 2. 学術論文・研究レポート・技術書籍
+
+- **DORA / Accelerate**: N. Forsgren, J. Humble, G. Kim, *Accelerate*, IT Revolution Press (2018)。Google Cloud DORA, *Accelerate State of DevOps Report* (2021, 2024).
+- **Barry W. Boehm**: *Software Engineering Economics*, Prentice-Hall (1981)。B. Boehm & V. R. Basili, *"Software Defect Reduction Top 10 List"*, IEEE Computer (2001).
+- **Meta TestGen-LLM**: N. Alshahwan et al., *"Automated Unit Test Improvement using Large Language Models at Meta"*, ACM FSE 2024 (2024).
+- **Meta ACH**: N. Alshahwan et al., *"Mutation-Guided LLM-based Test Generation at Meta"*, arXiv:2501.12862 (2025).
+- **Google AutoCommenter**: A. Vijayvergiya et al., *"AI-Assisted Assessment of Coding Practices in Modern Code Review"*, ACM AIware 2024 (2024)。A. Froemmgen et al., *"Resolving Code Review Comments with Machine Learning"*, ICSE-SEIP 2024 (2024).
+- **Three Amigos & Example Mapping**: G. Dinwiddie, *"Three Amigos: All for One and One for All"* (2009)。M. Wynne, *"Introducing Example Mapping"*, Cucumber Blog (2015).
+- **Cognitive Complexity**: G. A. Campbell, *"Cognitive Complexity: An Overview and Evaluation"*, TechDebt '18 / SonarSource (2018).
+- **C4 Model & ATAM**: S. Brown, *Software Architecture for Developers* (2018)。R. Kazman et al., *ATAM: Method for Architecture Evaluation*, CMU/SEI-2000-TR-004 (2000).
+- **Ragas (RAG Evaluation)**: S. Es et al., *"Ragas: Automated Evaluation of Retrieval Augmented Generation"*, EACL 2024 (2024).
+- **Spotify Engineering Model**: H. Kniberg & A. Ivarsson, *"Scaling Agile @ Spotify with Tribes, Squads, Chapters & Guilds"* (2012).
+- **Pretotyping**: A. Savoia, *The Right It: Why So Many Ideas Fail and How to Make Sure Yours Succeed*, HarperOne (2019).
+
+---
+
 本書が皆様のチームにおける対話のきっかけとなり、より創造的で、より安心できるプロダクト開発の礎となることを願っております。
 
 最後までお読みいただき、本当にありがとうございました。

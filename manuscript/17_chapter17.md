@@ -17,13 +17,12 @@
 
 ```mermaid
 flowchart TD
-    subgraph DataQualityDim["データ品質の実務6大次元（DAMA-DMBOK / ISO 25012 固有特性対応）"]
-        A["1. 完全性 (Completeness) : 必須値の欠損・NULL率ゼロ [ISO 25012 固有特性]"]
-        B["2. 正確性 (Accuracy) : 現実世界の事実と正確に合致 [ISO 25012 固有特性]"]
-        C["3. 一貫性 (Consistency) : 複数テーブル間での矛盾欠如 [ISO 25012 固有特性]"]
-        D["4. 適時性 (Timeliness / Currentness) : 要求鮮度・レイテンシの遵守 [ISO 25012 最新性]"]
-        E["5. 一意性 (Uniqueness) : 主キー重複・レコード重複の排除 [DAMA-DMBOK 固有次元]"]
-        F["6. 有効性 (Validity / Compliance) : 許容ドメイン・フォーマットの適合 [ISO 25012 準拠性]"]
+    subgraph DataQualityDim["データ品質の実務6大次元（DAMA-DMBOK / ISO 25012 対応）"]
+        A["1. 完全性 (Completeness): 必須値の欠損・NULL率ゼロ"] --> B["2. 正確性 (Accuracy): 現実世界の事実と正確に合致"]
+        B --> C["3. 一貫性 (Consistency): 複数テーブル間での矛盾欠如"]
+        C --> D["4. 適時性 (Timeliness): 要求鮮度・レイテンシの遵守"]
+        D --> E["5. 一意性 (Uniqueness): 主キー重複・レコード重複の排除"]
+        E --> F["6. 有効性 (Validity): 許容ドメイン・フォーマットの適合"]
     end
 ```
 
@@ -189,8 +188,12 @@ def repair_broken_schema(target_schema, incoming_columns_sample):
         "contents": [{"role": "user", "parts": [{"text": f"{system_prompt}\n\n{user_content}"}]}],
         "generationConfig": {"response_mime_type": "application/json"}
     }
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+    )
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             res = json.loads(resp.read().decode("utf-8"))
