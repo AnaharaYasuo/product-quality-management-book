@@ -97,15 +97,15 @@ sequenceDiagram
     CI->>Reg: イメージ + 署名Push
     K8s->>Reg: デプロイ要求検知
     K8s->>Rekor: 真正性 & 署名改ざん検証
-    Rekor-->>K8s: 検証成功 (SLSA Level 3合致)
+    Rekor-->>K8s: 検証成功 (署名とprovenanceを照合)
     K8s->>K8s: ポッド起動許可
 ```
 
-### SLSA Level 3達成のためのCosign署名
+### SLSA Build L3に必要なものとCosign署名の役割
 
-Sigstoreプロジェクトの `Cosign` を利用し、OIDC（OpenID Connect）連携による鍵不要（Keyless）署名をCI/CD上で実行する。なぜ従来のPGP署名のように「秘密鍵の生成・保管・ローテーション」が一切不要になるのだろうか。それはビルド実行時にGitHub Actionsが発行する身分証（OIDCトークン）を認証局（Sigstore Fulcio）へ提示し、**「わずか10分間だけ有効な使い捨ての署名証明書」を発行して署名した直後に、秘密鍵をメモリ上から即座に破棄する**からである。「有効期間中（その10分間のうち）に本当に正規のCIで署名が行われた」という事実と公開鍵証明書は、改ざん不能な公開透明性ログ（Rekor）にタイムスタンプ付きで永久刻印されるため、後からデプロイ時に秘密鍵を使わずとも真正性を100%数学的に検証できる。これにより、Kubernetesのアドミッションコントローラ（Kyverno等）で「GitHub Actionsの正規ワークフローで署名されたイメージのみ起動を許可する」という決定論的防御が実現する。
+Sigstoreプロジェクトの `Cosign` を利用し、OIDC（OpenID Connect）連携による鍵不要（Keyless）署名をCI/CD上で実行する。なぜ従来のPGP署名のように「秘密鍵の生成・保管・ローテーション」が一切不要になるのだろうか。それはビルド実行時にGitHub Actionsが発行する身分証（OIDCトークン）を認証局（Sigstore Fulcio）へ提示し、**「わずか10分間だけ有効な使い捨ての署名証明書」を発行して署名した直後に、秘密鍵をメモリ上から即座に破棄する**からである。「有効期間中（その10分間のうち）に本当に正規のCIで署名が行われた」という事実と公開鍵証明書は、改ざん不能な公開透明性ログ（Rekor）にタイムスタンプ付きで永久刻印されるため、後からデプロイ時に秘密鍵を使わずとも真正性を暗号学的に検証できる。これにより、Kubernetesのアドミッションコントローラ（Kyverno等）で「GitHub Actionsの正規ワークフローで署名されたイメージのみ起動を許可する」という決定論的防御が実現する。
 
-※なお、SLSA Level 3が要求する「隔離されたエフェメラル（使い捨て）ビルド環境」について、GitHub Actionsの標準ランナー（`ubuntu-latest` 等）はジョブごとにクリーンなVMが新規起動・破棄されるため標準で要件を満たしている。一方、セルフホステッドランナーを利用する場合は、ビルド間でキャッシュやファイルが残留して改ざん経路とならないよう注意が必要である。必ずActions Runner Controller（ARC）を用い、Kubernetes上で「1ジョブ1Podの使い捨てコンテナ」として起動する構成としなければならない。
+※ただし、**Cosignで署名するだけではSLSA Build L3には到達しない**。署名が証明するのは「誰が署名したか」であり、「どのソースから、どの手順でビルドされたか」ではないからである。Build L3では、ビルドを実行する利用者自身が改ざんできない仕組みで、ハードニングされたビルダーが provenance（来歴証明）を生成することが求められる。GitHub Actionsでは、`slsa-framework/slsa-github-generator` の再利用可能ワークフローで provenance を生成し、デプロイ時に `slsa-verifier` で検証するのが代表的な構成である。Cosign署名は、この provenance と組み合わせて使う。なお、セルフホステッドランナーを使う場合は、ビルド間でキャッシュやファイルが残留して改ざん経路とならないよう、Actions Runner Controller（ARC）で「1ジョブ1Podの使い捨てコンテナ」として起動する構成にする。
 
 ```bash
 # GitHub ActionsのOIDCトークンを用いて署名を実行
@@ -127,7 +127,7 @@ GitHubやGitLabに誤ってAWS秘密鍵、DBパスワード、APIトークンを
 
 オープンソースの高性能検知エンジン TruffleHog は、800種類以上の既知シークレット形式に対応する正規表現と、高エントロピー文字列の統計的検出を組み合わせ、さらには検出した認証情報が「実際に有効（Live）であるか」を各プロバイダAPIへ安全に問い合わせて真偽を判定する能力を持つ。これにより、テスト用のダミーキーによる大量の誤検知に悩まされることなく、真の脅威のみを決定論的に遮断できる。
 
-オープンソースの検知エンジン `TruffleHog` を用いて、エントロピー解析および正規表現により、コミット前のローカル（pre-commit）およびCIの両レイヤーで物理的に遮断する。
+オープンソースの検知エンジン `TruffleHog` を用いて、エントロピー解析および正規表現により、コミット前のローカル（pre-commit）およびCIの両レイヤーで機械的に遮断する。
 
 ```yaml
 # .pre-commit-config.yaml
@@ -148,7 +148,7 @@ Syft、Grype、Cosign、TruffleHogという4大ツールを初めて現場に導
 
 1. **TruffleHogは必ず `--only-verified` から開始する**: 単なる高エントロピー文字列（UUIDやテスト用ハッシュ）まで遮断すると開発者が疲弊するため、まずはプロバイダAPIで「実際に有効な鍵」と確証されたものだけをブロックする。
 2. **Grypeの `--only-fixed` オプションと `.grype.yaml` 除外の活用**: OSベースイメージに含まれる「修正パッチがまだ存在しない脆弱性（Won't Fix）」でCIを止めないよう、`--only-fixed`（修正済みが存在する脆弱性のみ遮断）を指定する。また、到達不能な脆弱性は有効期限付きで `.grype.yaml` の `ignore` リストに登録する。
-3. **段階的ロールアウト（TruffleHog ➔ Syft/Grype ➔ Cosign）**: まずは導入コストがほぼゼロのTruffleHog（Week 1）から開始する。次にSBOM可視化とGrype監査（Week 2）を導入し、最後にKubernetes環境側の整備を伴うCosign署名検証（Month 2）へと段階的に引き上げることで、最小の摩擦でSLSA Level 3へ到達できる。
+3. **段階的ロールアウト（TruffleHog ➔ Syft/Grype ➔ Cosign）**: まずは導入コストがほぼゼロのTruffleHog（Week 1）から開始する。次にSBOM可視化とGrype監査（Week 2）を導入し、最後にKubernetes環境側の整備を伴うCosign署名検証（Month 2）へと段階的に引き上げることで、最小の摩擦でSLSA Build L3に向けた基盤を整えられる。
 
 ---
 
@@ -186,7 +186,7 @@ def audit_dependency_update(package_name, old_version, new_version, release_note
         "contents": [{"role": "user", "parts": [{"text": f"{system_prompt}\n\n{user_content}"}]}],
         "generationConfig": {"response_mime_type": "application/json"}
     }
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')}:generateContent"
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -278,4 +278,4 @@ if __name__ == "__main__":
 - **第15章**: デプロイとリリースの完全分離、カナリア自動切戻し、SLI/SLOと非難のないポストモーテム。
 - **第16章**: SBOM自動生成、SLSA完全性署名、シークレット遮断、AIによるサプライチェーン確証。
 
-ここまでの議論は、入力に対して決定論的に振る舞う「従来の決定論的ソフトウェア」を前提としていた。しかし、現代のプロダクト開発において最も急速に普及し、かつ最も品質管理が困難な領域が「機械学習・大規模言語モデル（LLM）を組み込んだAIプロダクト」である。続く「第V部：AIプロダクト（非決定論的システム）の品質保証」では、確率的かつ非決定論的に振る舞うAIをどのようにテストし、評価し、安全性を保証するかという未知のフロンティアへ足を踏み入れる。
+ここまでの議論は、入力に対して決定論的に振る舞う「従来の決定論的ソフトウェア」を前提としていた。しかし、現代のプロダクト開発において最も急速に普及し、かつ最も品質管理が困難な領域が「機械学習・大規模言語モデル（LLM）を組み込んだAIプロダクト」である。続く「第V部：AIプロダクトと自律型AIエージェントの品質保証」では、確率的かつ非決定論的に振る舞うAIをどのようにテストし、評価し、安全性を保証するかという未知のフロンティアへ足を踏み入れる。

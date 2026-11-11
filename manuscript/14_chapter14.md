@@ -201,7 +201,7 @@ def repair_broken_locator(broken_locator, page_dom_snippet, target_intent):
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"response_mime_type": "application/json"}
     }
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')}:generateContent"
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -222,7 +222,7 @@ if __name__ == "__main__":
     print(f"Healed locator result: {healed}")
 ```
 
-※大規模SPAにおけるDOM肥大化とトークン上限への対策：現代のReactやNext.js等で構築された画面の `page.content()`（HTML全文）は容易に数十万文字に達し、そのままプロンプトに投入するとコンテキスト長の制限超過やAPIコストの高騰、推論精度の低下を招く。実務で `page_dom_snippet` を抽出する際は、`<script>` や `<style>`、`<svg>`、Base64画像、冗長なCSSクラス属性をBeautifulSoup等で事前にストリップ（軽量化）する。あるいはPlaywrightの `page.locator('main').ariaSnapshot()`（ARIAツリーのスナップショット）を取得して渡すことで、トークン量を95%以上削減しつつ `getByRole` の推論精度を劇的に高められる。
+※大規模SPAにおけるDOM肥大化とトークン上限への対策：現代のReactやNext.js等で構築された画面の `page.content()`（HTML全文）は容易に数十万文字に達し、そのままプロンプトに投入するとコンテキスト長の制限超過やAPIコストの高騰、推論精度の低下を招く。実務で `page_dom_snippet` を抽出する際は、`<script>` や `<style>`、`<svg>`、Base64画像、冗長なCSSクラス属性をBeautifulSoup等で事前にストリップ（軽量化）する。あるいはPlaywrightの `page.locator('main').ariaSnapshot()`（ARIAツリーのスナップショット）を取得して渡すことで、トークン量を95%以上削減しつつ `getByRole` の推論精度を大きく高められる。
 
 ### 自己修復テストにおける「誤修復の自動マージ」を防ぐHuman-in-the-Loopガードレール
 
@@ -270,6 +270,22 @@ LLMによるセレクタ自己修復を運用する際、絶対に犯しては�
 1. **ストレスリピートテストの実行**: 自チームのE2Eテストスイートから最も不安定なテストを1件選び、`npx playwright test --repeat-each 50` で50回連続実行する。
 2. **失敗ログとトレースの解析**: 失敗した試行のPlaywright Trace Viewerを開き、「DOM要素のロード待ち」「非同期API通信の遅延」「データ競合」のいずれが原因かを特定する。
 3. **ロケータとアサーションの改修**: 固定秒待機（sleep）を全廃し、`getByRole` と `expect(...).toBeVisible()` に置き換えて50回連続パスを達成する。
+
+---
+
+### コラム「現場から」：E2Eの自己修復で、期待値には触らせない
+
+E2Eテストが赤くなったとき、筆者のチームがAIに直させてよいのは、要素の探し方（ロケータ）と待ち方だけである。期待値は凍結している。
+
+期待値を書き換えなければ緑にならないなら、それは画面が少し変わっただけのズレではない。その場合は赤のまま残し、原因を次の3つのどれかに確定させる。
+
+- 実装の不具合
+- テストケースの誤り
+- 仕様の未確定
+
+確定させる前に、もう1つ必ず確かめることがある。テストスクリプトが、テストケースの期待値と前提条件を正しく写せているかである。スクリプトの写し間違いを見逃すと、その後の照合がすべてずれる。
+
+「緑にできた」は品質の証拠ではない。期待値の出どころが「アプリの現在の挙動」に変わった瞬間に、テストは仕様の検証から現状の追認に落ちる。
 
 ---
 

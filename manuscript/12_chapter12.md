@@ -4,13 +4,13 @@
 
 どれほど綿密に定義された開発標準やPR（プルリクエスト）ガイドラインが存在しても、それが「開発者の善意」や「個人のチェックリスト目視」に依存している限り、過密スケジュールやヒューマンエラーによって確実に形骸化する。「うっかり忘れた」「急いでいたので後で修正するつもりだった」という言葉とともに、未検証コードのマージ、壊れたテスト、空欄だらけのPR説明文、トレーサビリティの欠落したコミットが本流ブランチへと雪崩れ込む。
 
-本章では、開発プロセスそのものに静的検査（Lint）と自動防護壁（Guardrails）を張り巡らせ、「間違った状態ではコミットもプッシュもマージも物理的にできない世界」を機械的かつ決定論的に構築する技術体系を詳解する。
+本章では、開発プロセスそのものに静的検査（Lint）と自動防護壁（Guardrails）を張り巡らせ、「間違った状態ではコミットもプッシュもマージも機械的にできない世界」を機械的かつ決定論的に構築する技術体系を詳解する。
 
 ---
 
 ## 12.1 プロセスガードレールの思想：「人間を信じるのではなく、間違えようがない仕組みを信じる」
 
-従来のプロセス品質管理における最大の誤謬は、「教育・指導によって人間の注意力や遵守意識を高めようとすること」である。認知心理学やシステム安全工学が証明している通り、疲労・時間的圧力・注意散漫に晒された人間がヒューマンエラーを完全に排除することは原理的に不可能である。
+従来のプロセス品質管理における最大の誤謬は、「教育・指導によって人間の注意力や遵守意識を高めようとすること」である。認知心理学やシステム安全工学が証明している通り、疲労・時間的圧力・注意散漫に晒された人間がヒューマンエラーをなくすことはできない。
 
 品質保証（QA）エンジニアやテクニカルリードが目指すべきは、「人間を疑うこと」でも「人間の善意に甘えること」でもなく、「エラーを犯すことが不可能な環境（ポカヨケ / Poka-yoke）」を開発インフラとして配備することである。
 
@@ -172,7 +172,7 @@ jobs:
 
 ## 12.4 PRサイズ・鮮度のガードレール：Dangerによる巨大PRと負債の防止
 
-PRのサイズ（変更行数・ファイル数）と、コードレビューの品質および欠陥見落とし率には極めて強い正の相関がある。変更行数が500行を超えたPRのレビューは、実質的に「斜め読み」となり、重大なロジック欠陥やセキュリティホールが看過される原因となる。
+PRのサイズ（変更行数・ファイル数）と、コードレビューの品質および欠陥見落とし率には極めて強い正の相関がある。変更行数が400行を超えたPRのレビューは、実質的に「斜め読み」となり、重大なロジック欠陥やセキュリティホールが看過される原因となる。
 
 オープンソースの自動レビューツール `Danger`（JavaScript / Ruby）を活用することで、PRのメタ情報、差分量、付随成果物の過不足を動的に監視し、基準を超過した変更に対して即座に警告（Warn）またはマージ阻止（Fail）を発動できる。
 
@@ -185,11 +185,14 @@ const modifiedFiles = danger.git.modified_files;
 const createdFiles = danger.git.created_files;
 const allChangedFiles = [...modifiedFiles, ...createdFiles];
 
-// 1. 巨大PRの検出と警告
-const MAX_CHANGED_LINES = 500;
+// 1. 巨大PRの検出（本書共通閾値：400行超で警告、800行超でブロック）
+const WARN_CHANGED_LINES = 400;
+const FAIL_CHANGED_LINES = 800;
 const totalLinesChanged = danger.github.pr.additions + danger.github.pr.deletions;
-if (totalLinesChanged > MAX_CHANGED_LINES) {
-  warn(`⚠️ このPRの変更行数は ${totalLinesChanged} 行です。500行を超える巨大PRはレビュー品質の著しい低下を招きます。PRの分割を検討してください。`);
+if (totalLinesChanged > FAIL_CHANGED_LINES) {
+  fail(`🛑 このPRの変更行数は ${totalLinesChanged} 行です。800行を超えるPRは分割してください。`);
+} else if (totalLinesChanged > WARN_CHANGED_LINES) {
+  warn(`⚠️ このPRの変更行数は ${totalLinesChanged} 行です。400行を超えるとレビュー品質が低下しやすいため、分割を検討してください。`);
 }
 
 // 2. 実装コード変更時のテストコード同根チェック
@@ -246,114 +249,124 @@ jobs:
 
 ## 12.5 AI確証工程：PR変更内容とDoDチェックボックスの乖離検知
 
+> **データ送信の注意**：この節のスクリプトは、PR本文と変更ファイル一覧を外部のLLM APIへ送信する。実行前に、第2章「外部LLMへのデータ送信ポリシー」に沿って、送信してよいデータか、個人情報や秘密情報をマスキングしたかを確認すること。
+
 プロセスの静的検証における最大の盲点の一つが、「PR作成者がチェックボックス（`[x]`）にチェックを入れているが、実際にはその作業を一切やっていない」という虚偽申告問題である。
 
 例えば、PRテンプレートに `[x] 単体テストを実行し全件パスを確認した`、`[x] ドキュメントを最新化した` と記載されていながら、Gitの変更差分にはテストコードの修正もドキュメントファイルの更新も存在しないというケースは日常的に発生する。人間レビュアーはこれを突き合わせる作業に多大な認知リソースを浪費するか、あるいは「チェックがついているから大丈夫だろう」と盲目的に信じてスルーしてしまう。
 
-この課題を解決するため、Git差分とPR本文のDoDチェックボックスを突合し、乖離を機械的に糾弾する「AI Process Gatekeeper」をCIパイプラインに組み込む。
+この課題を解決するため、Git差分とPR本文のDoDチェックボックスを突合する「AI Process Gatekeeper」をCIパイプラインに組み込む。
+
+設計の原則は、**マージを止めるのは決定論的に判定できる乖離だけ**にすることである。LLMによる意味的な照合は見落としを拾うのに役立つが、誤判定もある。そこでLLMの結果は助言として扱い、指摘があったときやAPI障害で監査できなかったときは、人のレビューへエスカレーションする（第8章・第24章と同じ方針）。
 
 ```mermaid
 flowchart TD
     A["PR作成または差分更新"] --> B["AI Process Gatekeeper (CI)"]
-    B --> C["PR本文のDoD抽出"]
-    B --> D["git diffの変更ファイル一覧抽出"]
-    C --> E{"LLMによるセマンティック整合性検証"}
-    D --> E
-    E -->|"申告と差分が完全一致"| F["CI Pass: Status Green"]
-    E -->|"乖離検知（虚偽・未達）"| G["PRへ自動警告 & CI Failure"]
-    G --> H["開発者が修正して再プッシュ"]
-    H --> B
+    B --> C{"決定論的チェック
+(チェック項目と変更ファイルの機械照合)"}
+    C -->|"違反あり"| G["CI Failure（ハードブロック）"]
+    C -->|"違反なし"| E{"LLMによる意味的照合（助言）"}
+    E -->|"食い違いなし"| F["CI Pass"]
+    E -->|"指摘あり / API障害"| H["needs-human-review ラベル付与
+人のレビューで判断"]
+    G --> R["開発者が修正して再プッシュ"]
+    R --> B
 ```
 
 ### AI Gatekeeperの実装スクリプト
 
 ```python
 # tools/ai_gatekeeper_check.py
-import os
-import sys
-import subprocess
 import json
+import os
+import re
+import subprocess
+import sys
 import urllib.error
 import urllib.request
 
-def get_git_diff():
-    # mainブランチとの差分統計および変更ファイル名を取得（浅いクローン時はHEAD~1へフォールバック）
-    result = subprocess.run(['git', 'diff', '--name-status', 'origin/main...HEAD'], capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        result = subprocess.run(['git', 'diff', '--name-status', 'HEAD~1...HEAD'], capture_output=True, text=True, check=False)
-    return result.stdout
+NEEDS_HUMAN = "NEEDS_HUMAN_REVIEW"
 
-def audit_consistency(pr_body, git_diff):
-    api_key = os.environ.get('GEMINI_API_KEY')
+
+def get_changed_files() -> list[str]:
+    for base in ("origin/main...HEAD", "HEAD~1...HEAD"):  # 浅いクローン時は HEAD~1 にフォールバック
+        res = subprocess.run(
+            ["git", "diff", "--name-only", base], capture_output=True, text=True, encoding="utf-8", errors="replace", check=False
+        )
+        if res.returncode == 0:
+            return [f for f in res.stdout.splitlines() if f.strip()]
+    return []
+
+
+def deterministic_check(pr_body: str, files: list[str]) -> list[str]:
+    """機械的に判定できる乖離だけを、ハードブロックの対象にする。"""
+    errors = []
+    checked = lambda label: re.search(rf"- \[[xX]\] .*{label}", pr_body) is not None  # noqa: E731
+    if checked("テスト") and not any("test" in f.lower() or "spec" in f.lower() for f in files):
+        errors.append("「テスト追加済み」にチェックがありますが、テストファイルの変更がありません。")
+    if checked("ドキュメント") and not any(f.endswith(".md") or f.startswith("docs/") for f in files):
+        errors.append("「ドキュメント更新済み」にチェックがありますが、ドキュメントの変更がありません。")
+    return errors
+
+
+def llm_advisory(pr_body: str, files: list[str]) -> dict:
+    """意味的な乖離をLLMに指摘させる。結果は助言として扱い、マージ可否は決めない。"""
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        print('GEMINI_API_KEY is not set. Skipping AI Gatekeeper.')
-        return True, 'Skipped'
-
-    system_prompt = (
-        'あなたは厳格なソフトウェア開発プロセス監査官（AI Gatekeeper）です。\n'
-        'PR本文に記載されたチェックリスト（DoD）と、実際のGit変更差分（ファイルリスト）を照合し、\n'
-        '虚偽のチェックや実態との乖離が存在しないかを厳格に検証してください。\n\n'
-        '【判定基準】\n'
-        '1. PRで「ドキュメント更新済み」にチェックがあるのに、*.md や docs/ の変更がない場合はFAIL。\n'
-        '2. 「テスト追加・実行済み」にチェックがあるのに、tests/ や *_test.* の変更がない場合はFAIL。\n'
-        '3. 疑わしい点が一切なく整合している場合のみ PASS と判定すること。'
+        return {"verdict": NEEDS_HUMAN, "reasons": ["APIキー未設定のためAI監査は未実施"]}
+    prompt = (
+        "PR本文の申告内容と変更ファイル一覧を照合し、申告と実態の食い違いを列挙してください。\n"
+        "食い違いが無ければ verdict を PASS、あれば FAIL としてください。\n\n"
+        f"【PR本文】:\n{pr_body[:5000]}\n\n【変更ファイル一覧】:\n" + "\n".join(files[:300])
     )
-
-    user_content = f'【PR本文】:\n{pr_body}\n\n【Git変更ファイル一覧】:\n{git_diff}'
-
     payload = {
-        'contents': [
-            {'role': 'user', 'parts': [{'text': f'{system_prompt}\n\n{user_content}'}]}
-        ],
-        'generationConfig': {
-            'response_mime_type': 'application/json',
-            'response_schema': {
-                'type': 'OBJECT',
-                'properties': {
-                    'verdict': {'type': 'STRING', 'enum': ['PASS', 'FAIL']},
-                    'reasons': {'type': 'ARRAY', 'items': {'type': 'STRING'}},
-                    'corrective_actions': {'type': 'ARRAY', 'items': {'type': 'STRING'}}
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "response_mime_type": "application/json",
+            "response_schema": {
+                "type": "OBJECT",
+                "properties": {
+                    "verdict": {"type": "STRING", "enum": ["PASS", "FAIL"]},
+                    "reasons": {"type": "ARRAY", "items": {"type": "STRING"}},
                 },
-                'required': ['verdict', 'reasons', 'corrective_actions']
-            }
-        }
+                "required": ["verdict", "reasons"],
+            },
+        },
     }
-
-    model_name = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
-    url = f'https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent'
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
     req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode('utf-8'),
-        headers={'Content-Type': 'application/json', 'x-goog-api-key': api_key},
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
     )
-
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            res_data = json.loads(resp.read().decode('utf-8'))
-            text_response = res_data['candidates'][0]['content']['parts'][0]['text']
-            audit_result = json.loads(text_response)
-            return audit_result['verdict'] == 'PASS', audit_result
-    except (urllib.error.URLError, json.JSONDecodeError, KeyError, TimeoutError) as e:
-        # LLM APIのレートリミットや一時障害時にCI全体を止めないための決定論的フォールバック
-        print(f'[WARN] AI API call failed ({e}). Running deterministic fallback check...')
-        has_test_diff = any('test' in line.lower() for line in git_diff.splitlines())
-        claims_test = '[x] 単体テスト' in pr_body or '[x] テスト' in pr_body
-        if claims_test and not has_test_diff:
-            return False, {'verdict': 'FAIL', 'reasons': ['テスト実施にチェックがありますがテスト差分がありません（Fallback検知）']}
-        return True, {'verdict': 'PASS', 'reasons': ['Fallback check passed']}
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
+    except (urllib.error.URLError, json.JSONDecodeError, KeyError, TimeoutError) as exc:
+        # 障害時は「合格」ではなく「未実施」として人に判断を戻す（fail-closed）
+        return {"verdict": NEEDS_HUMAN, "reasons": [f"AI監査API障害のため未実施: {exc}"]}
 
-if __name__ == '__main__':
-    pr_body = os.environ.get('PR_BODY', '')
-    git_diff = get_git_diff()
-    passed, detail = audit_consistency(pr_body, git_diff)
-    if not passed:
-        print(f'AI Gatekeeper Audit FAILED: {detail}')
+
+if __name__ == "__main__":
+    body = os.environ.get("PR_BODY", "")
+    changed = get_changed_files()
+
+    hard_errors = deterministic_check(body, changed)
+    advisory = llm_advisory(body, changed)
+    print(f"[AI助言] {advisory}")
+    if advisory.get("verdict") != "PASS":
+        # ワークフロー側でこの出力を読み、needs-human-review ラベルを付ける
+        print("::notice::AI監査で確認事項があります。needs-human-review ラベルを付与してください。")
+
+    if hard_errors:
+        for e in hard_errors:
+            print(f"❌ {e}")
         sys.exit(1)
-    print('AI Gatekeeper Audit PASSED')
-    sys.exit(0)
+    print("✅ 決定論的チェックを通過しました（AI助言は人のレビューで確認してください）。")
 ```
 
-※JSON Modeスキーマ検証とリトライ設計の補足：Gemini APIの `response_schema`（Structured Outputs）を指定することで、出力形式の揺れは大幅に抑えられる。ただし巨大なPR差分を送信した際には、出力の途中切れ（`finishReason: MAX_TOKENS`）による `json.JSONDecodeError` や一時的な通信瞬断が発生することがある。実運用では `git_diff` を先頭20,000文字にトランケートした上でタイムアウトを `15〜20秒` に設定する。さらにHTTP 429/503発生時には2秒・4秒の指数バックオフ（最大2回リトライ）を挟んでから上記の決定論的フォールバックへ移行する構成とすると、万全の可用性を担保できる。
+※JSON Modeスキーマ検証とリトライ設計の補足：Gemini APIの `response_schema`（Structured Outputs）を指定することで、出力形式の揺れは大幅に抑えられる。ただし巨大なPR差分を送信した際には、出力の途中切れ（`finishReason: MAX_TOKENS`）による `json.JSONDecodeError` や一時的な通信瞬断が発生することがある。実運用では `git_diff` を先頭20,000文字にトランケートした上でタイムアウトを `15〜20秒` に設定する。さらにHTTP 429/503発生時には2秒・4秒の指数バックオフ（最大2回リトライ）を挟み、それでも失敗した場合は「AI監査未実施」として人のレビューに回す。障害時に合格へ倒してはならない。
 
 ---
 
@@ -391,6 +404,17 @@ stateDiagram-v2
     事後追跡 --> [*]: クローズ確認
 ```
 
+### プロセスガードレールのQA合否判定基準（Pass/Fail Criteria）
+
+本章で扱ったガードレールの合否判定基準を整理する。数値はいずれも第2章「本書の閾値の扱い」に従う出発点の目安である。
+
+| 検査項目 | 合格（Pass） | 警告（Warn） | 不合格（Fail / ブロック） |
+| :--- | :--- | :--- | :--- |
+| コミットメッセージ | Conventional Commits準拠 | 該当なし | 規約違反（commitlint） |
+| PRサイズ | 400行以内 | 400行超〜800行以内 | 800行超 |
+| PR本文とDoDの整合 | 決定論的チェック違反0件 | AI助言で確認事項あり（人のレビューへ） | チェック済み項目と変更ファイルの機械的な食い違い |
+| Issue紐付け | `Closes #N` 等の記載あり | 該当なし | 記載なし |
+
 ---
 
 ## 12.7 アンチパターン対比：形骸化するプロセス vs 機能するガードレール
@@ -399,9 +423,9 @@ stateDiagram-v2
 
 | 観点 | アンチパターン（形骸化するプロセス） | ベストプラクティス（機能するガードレール） |
 | :--- | :--- | :--- |
-| **ルールの伝達** | 膨大な社内Wikiに「開発規約」を記述し、新人に通読を義務付ける。 | Git Hooks（pre-commit）やRulesetで物理的にルール違反を遮断する。 |
+| **ルールの伝達** | 膨大な社内Wikiに「開発規約」を記述し、新人に通読を義務付ける。 | Git Hooks（pre-commit）やRulesetで機械的にルール違反を遮断する。 |
 | **レビューの役割** | レビュアーが「インデント」「コミットメッセージ」「PR記述」の指摘に忙殺される。 | 形式的ルールはすべてLintやCIが落とす。人間は設計・ビジネス価値のみを議論する。 |
-| **PRの粒度** | 2週間分の作業が詰め込まれた3,000行のPRが提出され、誰も読まずにApproveする。 | DangerやBotが500行以上のPRに警告を発し、分割を強制する。 |
+| **PRの粒度** | 2週間分の作業が詰め込まれた3,000行のPRが提出され、誰も読まずにApproveする。 | DangerやBotが400行超のPRに警告を発し、800行超のPRはマージをブロックする。 |
 | **DoDの遵守** | PRのチェックボックスが単なる「通過儀礼」となり、ノーチェックで送信される。 | AI GatekeeperがGit差分と照合し、虚偽や未達のチェックを自動検知してリジェクトする。 |
 | **緊急対応** | 管理者がGitHubの設定画面で一時的にBranch Protectionを解除し、戻し忘れる。 | 監査ログ付きのHotfix自動ワークフローを設計し、事後チケットを自動生成して追跡する。 |
 
@@ -416,7 +440,7 @@ stateDiagram-v2
 1. **ブランチ保護**:
    - `main` や `production` ブランチへの直接プッシュおよびForce Pushが完全に禁止されているか？
 2. **必須CIのブロック力**:
-   - テストやリントが1件でも失敗している状態では、誰も物理的にマージできないよう設定されているか？
+   - テストやリントが1件でも失敗している状態では、誰も機械的にマージできないよう設定されているか？
 3. **コミットメッセージの標準化**:
    - commitlint等のツールが導入され、不正なコミットメッセージがローカルで遮断されているか？
 4. **PRサイズの監視**:
@@ -435,11 +459,21 @@ stateDiagram-v2
 
 ---
 
+### コラム「現場から」：既存の違反は許し、新しい違反だけを止める
+
+筆者のチームには、コード中のTODOコメントに必ずチケット番号を付けるという規約がある。誰がいつ解消するのかを追えないTODOは、負債として固まるからである。
+
+導入するとき、既存の番号なしTODOをすべて直してからゲートを入れる、という順序は取らなかった。検査するのは、PRで追加された行だけにした。既存のTODOはそのままでよい。ただし、その行を編集したり移動したりすれば、追加行として検査の対象になる。これで、触った場所から負債が返済されていく。
+
+同じ考え方で、「コードに仕様を書き写さず、仕様書への参照を1行だけ書く」という規約も機械で検査している。こちらは導入初期のため、警告にとどめている。編集の直後にエージェント側のフックで検査し、PRではCIで注釈を付ける。いきなりブロックにはしなかった。第11章の「3段階ラチェット戦略」を、規約ごとに別々の段階で回している形である。
+
+---
+
 ## 12.9 本章のまとめと次章への接続
 
 本章で論じたプロセスの静的検証（Lint & ガードレール）は、高品質なソフトウェアを高速にデリバリーするための「不可逆な安全網」である。
 
-- **人間を信じるのではなく、仕組みを信じる**: ルール違反は精神論で指導するのではなく、システムによって物理的に阻止する。
+- **人間を信じるのではなく、仕組みを信じる**: ルール違反は精神論で指導するのではなく、システムによって機械的に阻止する。
 - **多層防壁の構築**: ローカルの `commitlint` から、GitHub Ruleset、Danger、AI Gatekeeperに至る多段の検証パイプラインを敷く。
 - **例外の制御**: 緊急リリース（Hotfix）を排除するのではなく、透明化された例外レーンと事後負債回収を設計する。
 

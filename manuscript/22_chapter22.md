@@ -124,7 +124,7 @@ def test_payment_processing():
 - **Kill（変異体殺害）**: 実装コードが破壊されたことで、テストが正しく赤（Fail）になった状態。正常なテストコード。
 - **Survive（変異体生存）**: 実装コードが破壊されたにもかかわらず、テストが緑（Pass）のまま通過した状態。テストのアサーションが不十分である致命的証拠。
 
-Tier 1領域では、単なるコードカバレッジではなく「変異スコア（Mutation Score: 殺害率）80%以上」を完了条件（DoD）として課すことで、アサーションの空洞化を科学的・決定論的に根絶する。
+Tier 1領域では、単なるコードカバレッジではなく「変異スコア（Mutation Score: 殺害率。仕組みは第9章9.3節を参照）80%以上」を完了条件（DoD）として課すことで、アサーションの空洞化を科学的・決定論的に防ぐ。
 
 ただし、変異テストは数百個の変異体ごとにテストを反復実行するため、リポジトリ全体に対して毎回実行するとCI時間が数時間に膨れ上がり導入に挫折しやすい。大規模リポジトリで運用する実践的Tipsとして、**「PRごとのCIでは『Tier 1領域（`src/payment/`, `src/auth/` 等）のうち、当該PRで変更された差分ファイル（`git diff`）』に限定して変異テストを実行する」**構成を推奨する。そして**「Tier 1全域のフルスキャンは夜間（Nightly）バッチに分離する」**というハイブリッド運用を採ることで、PRのフィードバックを2分以内に保ったまま即死領域の鉄壁な防御を維持できる。
 
@@ -197,7 +197,7 @@ def select_optimal_tests(changed_files: list[str]) -> list[str]:
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {"response_mime_type": "application/json"}
         }
-        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')}:generateContent"
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),

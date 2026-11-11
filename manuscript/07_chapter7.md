@@ -140,7 +140,7 @@ rules:
 
 ### 1. PRの「認知可能サイズ」制限（Dangerの導入）
 
-SmartBear社の有名な研究によると、レビュアーが一度に集中して検証できるコード差分の上限は**200〜400行**であり、600行を超えると欠陥検出率は急落する。
+SmartBear社の有名な研究によると、レビュアーが一度に集中して検証できるコード差分の上限は**200〜400行**であり、それを超えると欠陥検出率は低下する。本書の共通閾値（400行超で警告・800行超でブロック）はこの知見に基づいている。
 これを強制するために、Danger（CI上でPRメタデータを自動監査するツール）を導入し、差分サイズが閾値を超えた場合に自動で警告またはブロックする。
 
 ```javascript
@@ -213,18 +213,18 @@ jobs:
 - 変更理由の要約: 
 
 ## 設計・ドメイン検証 (Author & Reviewer)
-- ☐ ドメインモデルの境界が破壊されていないか
-- ☐ 認知的複雑度がSonarQube / Linterの基準（15以下）を満たしているか
-- ☐ 外部依存の注入（DI）が適切に行われ、単体テスト容易性が確保されているか
+- [ ] ドメインモデルの境界が破壊されていないか
+- [ ] 認知的複雑度がSonarQube / Linterの基準（15以下）を満たしているか
+- [ ] 外部依存の注入（DI）が適切に行われ、単体テスト容易性が確保されているか
 
 ## 非機能要件・安全性検証
-- ☐ DBマイグレーションはダウンタイムなし（Zero-downtime）で実行可能か
-- ☐ N+1クエリや不要な大量データ全件取得が発生していないか
-- ☐ 秘密情報（APIキー・クレデンシャル）のハードコードがないか（Semgrep検証済）
+- [ ] DBマイグレーションはダウンタイムなし（Zero-downtime）で実行可能か
+- [ ] N+1クエリや不要な大量データ全件取得が発生していないか
+- [ ] 秘密情報（APIキー・クレデンシャル）のハードコードがないか（Semgrep検証済）
 
 ## 動作確認・テスト確証
-- ☐ 正常系・異常系・境界値の自動テストコードが含まれているか
-- ☐ ステージング環境での実機・API動作確認ログを貼付したか
+- [ ] 正常系・異常系・境界値の自動テストコードが含まれているか
+- [ ] ステージング環境での実機・API動作確認ログを貼付したか
 ```
 
 ---
@@ -277,6 +277,8 @@ sequenceDiagram
 ---
 
 ## 7.5 AI確証工程：AI生成コード特有のリスク（幻覚・タイポスクワッティング・非推奨API）の多層監査
+
+> **データ送信の注意**：この節のスクリプトは、PRのコード差分を外部のLLM APIへ送信する。実行前に、第2章「外部LLMへのデータ送信ポリシー」に沿って、送信してよいデータか、個人情報や秘密情報をマスキングしたかを確認すること。
 
 GitHub CopilotやChatGPT、Claude等のLLMによるコード生成が一般化した現在、従来の人手開発ではあり得なかった新しい形態の不具合やセキュリティリスクが発生している。これらを検知・遮断するための専用の「AI確証プロンプト＆パイプライン」を構築する。
 
@@ -348,48 +350,84 @@ GitHub CopilotやChatGPT、Claude等のLLMによるコード生成が一般化�
 
 ### 3. 実践：Pythonによる新規依存パッケージ自動検証スクリプト
 
-CI環境で実行し、PR差分から新規追加されたパッケージを抽出し、PyPI公式APIと照合して安全性を即座に判定する確証スクリプトである。
+CI環境で実行し、PR差分から新規追加されたパッケージを抽出し、PyPI公式APIと照合する確証スクリプトである。
+
+スロップスクワッティングは、AIがよく捏造する架空のパッケージ名を、攻撃者が先に登録しておく攻撃である。したがって「PyPIに存在するか」を確かめるだけでは、守りたい攻撃をそのまま通してしまう。以下の実装では、存在確認に加えて、初回公開からの経過日数、公開バージョン数、直近のダウンロード数を確認し、実績の乏しいパッケージは人による出自確認に回す。なお、これらは実績の目安であり、正当な新しいパッケージを導入する場合は、人が確認したうえで許可リストに登録する運用と組み合わせる。
 
 ```python
 # tools/verify_package_authenticity.py
-import sys
 import json
-import urllib.request
+import sys
 import urllib.error
+import urllib.request
+from datetime import UTC, datetime
 
-def verify_pypi_package(package_name: str) -> bool:
-    url = f"https://pypi.org/pypi/{package_name}/json"
+# 「存在するか」だけでは不十分。攻撃者は架空名を先に登録しておくため、実績も確認する。
+MIN_AGE_DAYS = 90             # 初回公開からの経過日数
+MIN_RELEASES = 3              # 公開されたバージョン数
+MIN_MONTHLY_DOWNLOADS = 1000  # 直近1か月のダウンロード数
+
+
+def fetch_json(url: str) -> dict | None:
     req = urllib.request.Request(url, headers={"User-Agent": "Book-QA-Verifier/1.0"})
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
-            if response.status == 200:
-                data = json.loads(response.read().decode("utf-8"))
-                downloads_info = data.get("info", {})
-                print(f"[OK] 実在確認: {package_name} (最新版: {downloads_info.get('version')})")
-                return True
+            return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            print(f"[CRITICAL FAIL] 架空または未登録パッケージ検知: {package_name}")
-            return False
-        print(f"[WARN] APIエラー ({e.code}): {package_name}")
-        return False
-    return False
+            return None
+        raise
+
+
+def verify_pypi_package(name: str) -> list[str]:
+    """問題点のリストを返す（空なら合格）。"""
+    meta = fetch_json(f"https://pypi.org/pypi/{name}/json")
+    if meta is None:
+        return ["PyPIに存在しません（架空パッケージの可能性）"]
+
+    problems = []
+    uploads = [
+        datetime.fromisoformat(f["upload_time_iso_8601"])
+        for files in meta.get("releases", {}).values()
+        for f in files
+    ]
+    if uploads:
+        age_days = (datetime.now(UTC) - min(uploads)).days
+        if age_days < MIN_AGE_DAYS:
+            problems.append(f"初回公開から {age_days} 日しか経っていません")
+    releases = [v for v, files in meta.get("releases", {}).items() if files]
+    if len(releases) < MIN_RELEASES:
+        problems.append(f"公開バージョンが {len(releases)} 件しかありません")
+
+    stats = fetch_json(f"https://pypistats.org/api/packages/{name.lower()}/recent")
+    monthly = (stats or {}).get("data", {}).get("last_month", 0)
+    if monthly < MIN_MONTHLY_DOWNLOADS:
+        problems.append(f"直近1か月のダウンロード数が {monthly} 件です")
+    return problems
+
 
 if __name__ == "__main__":
-    test_packages = sys.argv[1:]
-    if not test_packages:
+    packages = sys.argv[1:]
+    if not packages:
         print("検証対象パッケージを指定してください。")
-        sys.exit(0)
+        sys.exit(1)
 
     failed = False
-    for pkg in test_packages:
-        if not verify_pypi_package(pkg):
+    for pkg in packages:
+        try:
+            problems = verify_pypi_package(pkg)
+        except (urllib.error.URLError, TimeoutError) as exc:
+            problems = [f"検証APIに接続できません（合格扱いにはしません）: {exc}"]
+        if problems:
             failed = True
+            print(f"[要確認] {pkg}: " + " / ".join(problems))
+        else:
+            print(f"[OK] {pkg}")
 
     if failed:
-        print("\nCIブロック: 安全性が確認できない、または実在しないパッケージが含まれています。")
+        print("\nCIブロック: 実績を確認できないパッケージがあります。人が出自を確認し、許可リストに登録してください。")
         sys.exit(1)
-    print("\nすべてのパッケージが実在し、検証を通過しました。")
+    print("\nすべてのパッケージが実績基準を満たしました。")
 ```
 
 ### 4. 組織におけるAIコードレビューのガイドライン策定
@@ -397,7 +435,7 @@ if __name__ == "__main__":
 開発組織が生成AIや自律型エージェントを本格的に導入する際、開発者とAI、そしてレビュー担当者の間で合意形成しておくべき基本方針（AIレビュー憲章）を定める。
 
 1. **説明責任（Accountability）の所在**:
-   AIが生成したコードであっても、PRを作成した開発者本人がすべてのコード行に対して100%の説明責任を負いる。「AIが出力したから」という理由は一切の言い訳として認められない。コードの挙動を完全に理解していない場合は、PRを提出してはならない。
+   AIが生成したコードであっても、PRを作成した開発者本人がすべてのコード行に対して100%の説明責任を負う。「AIが出力したから」という理由は一切の言い訳として認められない。コードの挙動を完全に理解していない場合は、PRを提出してはならない。
 2. **AIレビューコメントへの真摯な向き合い方**:
    CIで自動投稿されるAIの指摘事項（Reviewdog等）を単に無視して手動マージする行為（Bypass）を禁止する。AIの指摘が誤検知（False Positive）であると判断した場合は、該当するルールIDを指定してリポジトリの除外設定（Ignore list）を更新するか、理由をPRコメントに明記する運用を義務付ける。
 3. **継続的なプロンプトとルールセットの改善サイクル**:
@@ -432,6 +470,16 @@ if __name__ == "__main__":
 
 ---
 
+### コラム「現場から」：変更した領域でレビュアーの役割を選ぶ
+
+筆者のチームでは、PRを作るとCIが変更の領域を判定する。そのうえで、バックエンド設計、セキュリティ、データベース、仕様との整合性といった役割（role）を持つAIレビュアーを選び、並行してレビューさせる。
+
+すべてのPRに全員を当てることはしない。変更の領域から役割を選ぶルール自体を設定ファイルに書き、それもレビューの対象にしている。
+
+人がPRに自分をレビュアーとして指名すると、その人の観点を持たせたAIレビューが追加で走る。AIのレビューは人のレビューの代わりではない。人が自分の観点を増幅するための道具として置いている。
+
+---
+
 ## 7.8 章末演習課題
 
 読者が自身の開発環境で実践するための実践的ワークショップ課題である。
@@ -439,7 +487,7 @@ if __name__ == "__main__":
 - **課題1（静的解析と複雑度ゲートの導入）**:
   プロジェクトにLinterと認知的複雑度計測ツール（SonarQube、ESLintの`sonarjs/cognitive-complexity`等）を導入する。その上で、複雑度15超の関数を検知したらPRをブロックするGitHub Actionsワークフローを構築する。
 - **課題2（DangerによるPRガードレール構築）**:
-  差分行数が500行を超えた場合、およびPR説明文が100文字未満の場合に自動で「PR分割・詳細追記」を要求するDangerスクリプトを作成し、テストPRで実際に警告が発火することを確認する。
+  差分行数が400行を超えた場合（800行超ではブロック）、およびPR説明文が100文字未満の場合に自動で「PR分割・詳細追記」を要求するDangerスクリプトを作成し、テストPRで実際に警告が発火することを確認する。
 - **課題3（AI生成コードのセキュリティ監査シミュレーション）**:
   LLMに「安全なトークン生成ユーティリティ」のコードを出力させる。そこに意図しない脆弱な乱数（`Math.random()` 等）や架空のライブラリ参照が含まれていないかを検証するSemgrepルールを作成し、正しく検出できるか動作テストを行う。
 - **課題4（コミットメッセージのリント自動化）**:

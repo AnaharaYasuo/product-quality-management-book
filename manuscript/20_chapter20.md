@@ -111,7 +111,7 @@ Spotifyが公開した組織モデル（Kniberg & Ivarsson, *Scaling Agile @ Spo
 
 全員品質を文化として定着させるための強力な触媒が、開発者自身がいつでも確認できる「品質可視化ダッシュボード」である。
 
-テストカバレッジの推移、CI成功率、flakyテスト発生件数、DORA指標（変更リードタイム・変更失敗率）をリアルタイムに可視化し、レトロスペクティブでチーム全員で振り返る。具体的な可視化スタックとしては、CIのJUnit XMLやカバレッジ出力を **Datadog CI Visibility** や **Grafana（＋BigQuery）**、またはOSSの **Apache DevLake** や **Codecov** に連携する構成が代表的である。そこからSlackへ週次サマリを自動配信する仕組みを作ると、現場への定着が劇的に進む。この際、最も留意すべきは「個人のコミット数やテスト作成数を比較しない」ことである。指標が個人の評価に結びついた瞬間、グッドハートの法則により「意味のない無価値なアサーション」が量産され、文化は崩壊する。メトリクスは常に「チームのプロセスを改善するための羅針盤」として運用されなければならない。
+テストカバレッジの推移、CI成功率、flakyテスト発生件数、DORA指標（変更リードタイム・変更失敗率）をリアルタイムに可視化し、レトロスペクティブでチーム全員で振り返る。具体的な可視化スタックとしては、CIのJUnit XMLやカバレッジ出力を **Datadog CI Visibility** や **Grafana（＋BigQuery）**、またはOSSの **Apache DevLake** や **Codecov** に連携する構成が代表的である。そこからSlackへ週次サマリを自動配信する仕組みを作ると、現場への定着が大きく進む。この際、最も留意すべきは「個人のコミット数やテスト作成数を比較しない」ことである。指標が個人の評価に結びついた瞬間、グッドハートの法則により「意味のない無価値なアサーション」が量産され、文化は崩壊する。メトリクスは常に「チームのプロセスを改善するための羅針盤」として運用されなければならない。
 
 ---
 
@@ -146,7 +146,7 @@ def provide_quality_coaching(pr_title, pr_diff, domain_rules):
     payload = {
         "contents": [{"role": "user", "parts": [{"text": f"{system_prompt}\n\n{user_content}"}]}]
     }
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')}:generateContent"
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),

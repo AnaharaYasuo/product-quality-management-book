@@ -136,6 +136,17 @@ deterministic_fact_rules:
     pattern: "--date=iso(?!-strict)\\b"
     message: "Python 3.10 以前との互換性および厳密な ISO 8601 パースのため、git log の日付指定には `--date=iso-strict` を使用してください。"
 
+  # ---- 本書共通閾値の一貫性契約（第2章「本書の閾値の扱い」と一致させる） ----
+  - id: "THRESHOLD-PR-SIZE"
+    pattern: "(?:PR|差分|変更行数)[^。\\n]{0,20}(?:300|500|600)行(?!〜)"
+    message: "PRサイズの本書共通閾値は「400行超で警告・800行超でブロック」です（第2章）。別の値を使う場合は文脈上の理由を明記したうえで本ルールを見直してください。"
+  - id: "THRESHOLD-MUTATION-SCORE"
+    pattern: "(?:ミューテーション|変異|Kill|殺害)[^。\\n|]{0,20}(?:65|70|85|90)%"
+    message: "ミューテーションスコアの本書共通閾値は「コアドメイン75%・Tier 1領域80%」です（第2章・第22章）。"
+  - id: "THRESHOLD-ZOMBIE-FEATURE"
+    pattern: "(?:時点で利用率|MAU[^。\\n]{0,6}1%|利用率[^。\\n]{0,6}(?:1|2)%未満|min_adoption_threshold: float = 0\\.0[1-9])"
+    message: "ゾンビ機能の本書共通判定基準は「90日間のDAU/MAU比0.5%未満」です（第2章・第25章）。"
+
 # 特定章における必須一次情報キーワード契約（Positive Ground-Truth Assertions）
 required_fact_assertions:
   - id: "REQ-CH01-ISO25019-2023-3TRAITS"

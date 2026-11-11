@@ -52,7 +52,7 @@ IaCの品質検証においては、以下の観点を網羅的に監査する�
 
 ### 3. Kubernetesマニフェスト（Helm等）の品質検証
 
-Kubernetesはクラスタ全体のリソース共有と自律回復を担うため、マニフェストの不備はノード枯渇やサービス停止を引き起こする。
+Kubernetesはクラスタ全体のリソース共有と自律回復を担うため、マニフェストの不備はノード枯渇やサービス停止を引き起こす。
 
 - **リソース制限（Requests / Limits）の明記**:
   CPUおよびメモリの要求値と上限値を必須とし、 noisy neighbor（近隣の迷惑なプロセス）によるクラスタ全体の障害を防止する。
@@ -237,7 +237,7 @@ CI/CDパイプラインにおけるセキュリティの死角となりやすい
 - **ForkリポジトリからのPRにおけるSecrets遮断**:
   オープンソースや外部コントリビューターからのPRにおいて、クラウドアカウントへのアクセス権を持つSecretsを絶対に参照できないように設定する。`pull_request_target` イベントを不用意に使用し、フォーク元の変更コードを特権コンテキストでチェックアウト・実行する脆弱性を厳密に排除する。
 - **エフェメラル（使い捨て）自己ホストランナー**:
-  自社インフラ内にセキュアな自己ホストランナー（Self-hosted Runner）を構築する場合、ジョブ終了ごとにVMやコンテナインスタンスを完全に破棄・再起動する「エフェメラル運用」を徹底する。前のジョブが残したファイルやプロセスによる環境汚染を根絶する。
+  自社インフラ内にセキュアな自己ホストランナー（Self-hosted Runner）を構築する場合、ジョブ終了ごとにVMやコンテナインスタンスを完全に破棄・再起動する「エフェメラル運用」を徹底する。前のジョブが残したファイルやプロセスによる環境汚染を防ぐ。
 
 ---
 
@@ -293,6 +293,8 @@ jobs:
 
 ## 8.5 AI確証工程：IaC変更のIAM過剰権限・セキュリティホール・破壊的変更の自動監査
 
+> **データ送信の注意**：この節のスクリプトは、Terraformの変更計画（plan）を外部のLLM APIへ送信する。実行前に、第2章「外部LLMへのデータ送信ポリシー」に沿って、送信してよいデータか、個人情報や秘密情報をマスキングしたかを確認すること。
+
 Terraformのコードレビューにおいて人間が最も見落としやすいのが、「IAMポリシーの過剰権限（Privilege Creep）」と「ステート破壊（リソースの不用意な再作成によるデータ消失）」である。これらを検知するための専用AI監査プロンプトを構築する。
 
 ### 1. IAM過剰権限・セキュリティホールのAI自動監査
@@ -343,58 +345,45 @@ CIパイプラインにおいて、`terraform show -json tfplan.binary` の出�
 import json
 import sys
 
-# 再作成（Forces Replacement）を絶対に許容しないクリティカルリソースの接頭辞
-CRITICAL_RESOURCE_TYPES = [
+# データを保持するリソース型（完全一致で判定する。前方一致にすると
+# aws_s3_bucket_policy のようなデータを持たない付随リソースまで止めてしまう）
+STATEFUL_RESOURCE_TYPES = {
     "aws_db_instance",
     "aws_rds_cluster",
     "aws_s3_bucket",
     "aws_dynamodb_table",
-    "aws_ebs_volume"
-]
+    "aws_ebs_volume",
+}
 
-def analyze_terraform_plan(plan_file_path: str):
-    with open(plan_file_path, encoding="utf-8") as f:
-        plan_data = json.load(f)
 
-    resource_changes = plan_data.get("resource_changes", [])
+def analyze_terraform_plan(plan_data: dict) -> list[dict]:
     violations = []
-
-    for change in resource_changes:
-        resource_type = change.get("type", "")
-        resource_name = change.get("name", "")
+    for change in plan_data.get("resource_changes", []):
+        if change.get("type") not in STATEFUL_RESOURCE_TYPES:
+            continue
         actions = change.get("change", {}).get("actions", [])
-
-        # actionsが ["delete", "create"] の場合は再作成（Forces Replacement）
-        if "delete" in actions and "create" in actions and any(
-            resource_type.startswith(crit) for crit in CRITICAL_RESOURCE_TYPES
-        ):
-            violations.append({
-                    "type": resource_type,
-                    "name": resource_name,
-                    "actions": actions
-                })
-
+        # 削除を含む計画（再作成 ["delete","create"] / ["create","delete"]、単純削除 ["delete"]）
+        if "delete" in actions:
+            violations.append({"address": change.get("address", ""), "actions": actions})
     return violations
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Terraform plan JSONファイルのパスを指定してください。")
         sys.exit(1)
 
-    plan_path = sys.argv[1]
-    detected_violations = analyze_terraform_plan(plan_path)
+    with open(sys.argv[1], encoding="utf-8") as f:
+        detected = analyze_terraform_plan(json.load(f))
 
-    if detected_violations:
-        print("=======================================================")
-        print("🛑 CIマージブロック: クリティカルリソースの破壊的再作成を検知しました！")
-        print("=======================================================")
-        for v in detected_violations:
-            print(f"- リソース: {v['type']}.{v['name']} (アクション: {v['actions']})")
-        print("\nデータ消失を防ぐため、lifecycle { prevent_destroy = true } またはインポート対応を行ってください。")
+    if detected:
+        print("🛑 CIマージブロック: データを保持するリソースの削除・再作成を検知しました。")
+        for v in detected:
+            print(f"- {v['address']} (アクション: {v['actions']})")
+        print("\nデータ消失を防ぐため、lifecycle { prevent_destroy = true } の付与、moved ブロック、またはインポート対応を検討してください。")
         sys.exit(1)
 
-    print("✅ 破壊的変更の検査を通過しました（安全な変更計画です）。")
-    sys.exit(0)
+    print("✅ 破壊的変更の検査を通過しました。")
 ```
 
 ※実装上の注意点：`terraform show -json` の出力スキーマ（`format_version`）は将来のバージョンアップで変更される可能性があるため、CI内では `plan_data.get("format_version")` の確認を推奨する。また、ネストされたサードパーティモジュール（`module.vpc.aws_db_instance.main` 等）配下のリソースであっても、`resource_changes` 配列にはフラットに展開されて格納される。各要素の `address` フィールドにはモジュール階層を含むフルパスが入り、`change.before` / `change.after`（または `root_module.child_modules[].resources[].values`）に変更前後の属性値が記録される。
@@ -451,6 +440,14 @@ LLMによるインフラ監査は強力ですが、確率的モデルである�
 | **クラウド認証** | CI/CD認証方式 | OIDCによる一時クレデンシャル利用 | 静的なAWSアクセスキーのSecrets保存 |
 | **FinOpsコスト** | Infracost 差分見積もり | 許容予算内（増加率20%未満） | 予算枠超過、または異常なリソース急増 |
 | **運用安全性** | 破壊的変更（Forces Replacement） | データストアの再作成が含まれない | DB/ストレージの再作成検知（即時ブロック） |
+
+---
+
+### コラム「現場から」：破壊的なDBマイグレーションを、PRで止める
+
+筆者のチームでは、ORMのスキーマ変更のうち、カラムやテーブルを削除する変更、つまりデータが失われうる変更をPRの時点で検知するチェックを入れている。
+
+検査の対象も絞っている。人やAIエージェントが作ったPRだけを対象にし、環境ブランチへの反映PRは除外している。対象を絞らないゲートは誤検知で無視されるようになる。最初から「どこを止めるか」を決めておくことが大事である。本章の破壊的変更検知でリソース型を完全一致で判定しているのも、同じ理由による。
 
 ---
 
