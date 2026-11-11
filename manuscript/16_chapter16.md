@@ -15,7 +15,7 @@
 サプライチェーン攻撃は、コードのリポジトリ、ビルドシステム、配布パイプラインの各結節点を標的とする。
 
 ```mermaid
-flowchart LR
+flowchart TD
     A["ソースコード (依存OSS混入)"] -->|"TruffleHog / SCAスキャン"| B["CI/CDビルドシステム"]
     B -->|"SLSA Provenance署名 (Cosign)"| C["コンテナレジストリ"]
     C -->|"実行時アドミッション制御 (Kyverno)"| D["本番Kubernetes環境"]
@@ -47,20 +47,20 @@ jobs:
   sbom-vulnerability-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Build Container Image
         run: docker build -t app:local .
 
       - name: Generate SBOM (CycloneDX)
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c38bb904149f54be9fb9ef2d2bbe9ef61ef06 # v0.17.8
         with:
           image: app:local
           format: cyclonedx-json
           output-file: sbom.cyclonedx.json
 
       - name: Scan Vulnerabilities with Grype
-        uses: anchore/scan-action@v3
+        uses: anchore/scan-action@335fd2bc2ddb3fd2d2fb1a4ef3e4b2b7d7c86538 # v4.1.0
         with:
           sbom: sbom.cyclonedx.json
           fail-build: true
@@ -103,7 +103,7 @@ sequenceDiagram
 
 ### SLSA Level 3達成のためのCosign署名
 
-Sigstoreプロジェクトの `Cosign` を利用し、OIDC（OpenID Connect）連携による鍵不要（Keyless）署名をCI/CD上で実行する。なぜ従来のPGP署名のように「秘密鍵の生成・保管・ローテーション」が一切不要になるのでしょうか。それはビルド実行時にGitHub Actionsが発行する身分証（OIDCトークン）を認証局（Sigstore Fulcio）へ提示し、**「わずか10分間だけ有効な使い捨ての署名証明書」を発行して署名した直後に、秘密鍵をメモリ上から即座に破棄する**からである。「有効期間中（その10分間のうち）に本当に正規のCIで署名が行われた」という事実と公開鍵証明書は、改ざん不能な公開透明性ログ（Rekor）にタイムスタンプ付きで永久刻印されるため、後からデプロイ時に秘密鍵を使わずとも真正性を100%数学的に検証できる。これにより、Kubernetesのアドミッションコントローラ（Kyverno等）で「GitHub Actionsの正規ワークフローで署名されたイメージのみ起動を許可する」という決定論的防御が実現する。
+Sigstoreプロジェクトの `Cosign` を利用し、OIDC（OpenID Connect）連携による鍵不要（Keyless）署名をCI/CD上で実行する。なぜ従来のPGP署名のように「秘密鍵の生成・保管・ローテーション」が一切不要になるのだろうか。それはビルド実行時にGitHub Actionsが発行する身分証（OIDCトークン）を認証局（Sigstore Fulcio）へ提示し、**「わずか10分間だけ有効な使い捨ての署名証明書」を発行して署名した直後に、秘密鍵をメモリ上から即座に破棄する**からである。「有効期間中（その10分間のうち）に本当に正規のCIで署名が行われた」という事実と公開鍵証明書は、改ざん不能な公開透明性ログ（Rekor）にタイムスタンプ付きで永久刻印されるため、後からデプロイ時に秘密鍵を使わずとも真正性を100%数学的に検証できる。これにより、Kubernetesのアドミッションコントローラ（Kyverno等）で「GitHub Actionsの正規ワークフローで署名されたイメージのみ起動を許可する」という決定論的防御が実現する。
 
 ※なお、SLSA Level 3が要求する「隔離されたエフェメラル（使い捨て）ビルド環境」について、GitHub Actionsの標準ランナー（`ubuntu-latest` 等）はジョブごとにクリーンなVMが新規起動・破棄されるため標準で要件を満たしている。一方、セルフホステッドランナーを利用する場合は、ビルド間でキャッシュやファイルが残留して改ざん経路とならないよう注意が必要である。必ずActions Runner Controller（ARC）を用い、Kubernetes上で「1ジョブ1Podの使い捨てコンテナ」として起動する構成としなければならない。
 
@@ -186,8 +186,12 @@ def audit_dependency_update(package_name, old_version, new_version, release_note
         "contents": [{"role": "user", "parts": [{"text": f"{system_prompt}\n\n{user_content}"}]}],
         "generationConfig": {"response_mime_type": "application/json"}
     }
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+    )
     with urllib.request.urlopen(req, timeout=15) as resp:
         res = json.loads(resp.read().decode("utf-8"))
         return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
@@ -274,4 +278,4 @@ if __name__ == "__main__":
 - **第15章**: デプロイとリリースの完全分離、カナリア自動切戻し、SLI/SLOと非難のないポストモーテム。
 - **第16章**: SBOM自動生成、SLSA完全性署名、シークレット遮断、AIによるサプライチェーン確証。
 
-ここまでの議論は、入力に対して決定論的に振る舞う「従来の決定論的ソフトウェア」を前提としていた。しかし、現代のプロダクト開発において最も急速に普及し、かつ最も品質管理が困難な領域が「機械学習・大規模言語モデル（LLM）を組み込んだAIプロダクト」である。続く「第V部：【最前線】AIプロダクト品質とLLMアプリケーションの確証」では、確率的かつ非決定論的に振る舞うAIをどのようにテストし、評価し、安全性を保証するかという未知のフロンティアへ足を踏み入れる。
+ここまでの議論は、入力に対して決定論的に振る舞う「従来の決定論的ソフトウェア」を前提としていた。しかし、現代のプロダクト開発において最も急速に普及し、かつ最も品質管理が困難な領域が「機械学習・大規模言語モデル（LLM）を組み込んだAIプロダクト」である。続く「第V部：AIプロダクト（非決定論的システム）の品質保証」では、確率的かつ非決定論的に振る舞うAIをどのようにテストし、評価し、安全性を保証するかという未知のフロンティアへ足を踏み入れる。

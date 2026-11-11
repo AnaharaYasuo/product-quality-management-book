@@ -1,6 +1,6 @@
 # 第18章：LLM・生成AIアプリケーションの品質評価（LLM-as-a-Judge）
 
-「このプロンプトを少し修正したのですが、全体の品質は上がったのでしょうか、それとも別の箇所で壊れたのでしょうか？」――生成AI（LLM）アプリケーションを開発するエンジニアが、日夜頭を抱える根源的な問いである。従来のソフトウェア開発では、`assert result == expected` という決定論的な等価比較によってリグレッション（品質退行）を完全に防ぐことができた。しかし、確率的かつ非決定論的に文章を生成するLLMの世界において、文字列表現の完全一致によるテストは無意味である。
+「このプロンプトを少し修正したのですが、全体の品質は上がったのだろうか、それとも別の箇所で壊れたのだろうか？」――生成AI（LLM）アプリケーションを開発するエンジニアが、日夜頭を抱える根源的な問いである。従来のソフトウェア開発では、`assert result == expected` という決定論的な等価比較によってリグレッション（品質退行）を完全に防ぐことができた。しかし、確率的かつ非決定論的に文章を生成するLLMの世界において、文字列表現の完全一致によるテストは無意味である。
 
 「もっともらしい嘘（ハルシネーション）」、「文脈の無視」、「不快・有害な出力」、そして悪意あるユーザーによる「プロンプトインジェクション（脱獄 / Jailbreak）」。これら非決定論的システム特有の欠陥に対し、勘と経験による手動目視チェック（お気持ち評価）で立ち向かう組織は、プロンプトの微小な変更でさえ怖くてデプロイできなくなる。
 
@@ -61,10 +61,10 @@ flowchart TD
 ### 3大メトリクスの定義と算出式
 
 1. **忠実度（Faithfulness / ハルシネーションの測定）**:
-   - 回答 $A$ に含まれる全ての主張（Claim）が、検索文脈 $C$ から直接論理的に演繹できるかの比率。
-   - 数式: $\text{Faithfulness} = \frac{|\text{文脈で裏付けられた主張}|}{|\text{回答中の全主張}|}$
+   - 回答 `A` に含まれる全ての主張（Claim）が、検索文脈 `C` から直接論理的に演繹できるかの比率。
+   - 算出式: `Faithfulness = (検索文脈で裏付けられた主張数) ÷ (回答中の全主張数)`
 2. **回答関連度（Answer Relevance / 的外れ回答の測定）**:
-   - 生成された回答 $A$ から逆算して「どのような質問に対する答えか（疑似質問 $Q'$）」をLLMに逆生成させ、元の質問 $Q$ とのコサイン類似度を測定する。
+   - 生成された回答 `A` から逆算して「どのような質問に対する答えか（疑似質問 `Q'`）」をLLMに逆生成させ、元の質問 `Q` とのコサイン類似度を測定する。
 3. **文脈適合度（Context Relevance / 検索精度の測定）**:
    - 検索されたチャンク群の中に、質問に答えるために真に必要な情報文が何パーセント含まれているかを測定する。
 
@@ -213,8 +213,12 @@ def generate_adversarial_prompts(system_purpose: str) -> list[str]:
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"response_mime_type": "application/json"}
     }
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+    )
     with urllib.request.urlopen(req, timeout=15) as resp:
         res = json.loads(resp.read().decode("utf-8"))
         return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
@@ -238,7 +242,7 @@ def verify_guardrail_resilience(attack_prompts: list[str], leaked_keywords: list
 
 # ※実運用における誤検知（False Positive / 過剰遮断）のチューニング規律：
 # ガードレールを厳しくしすぎると、「パスワードの変更手順を教えて」といった一般社員の正当な業務質問まで
-# 「機密情報の抽出攻撃」と誤判定してブロックしてしまう。そのため本番テストでは、上記の『敵対的プロンプト群（100%遮断すべきデータ）』と対になる
+# 「機密情報の抽出攻撃」と誤判定してブロックしてしまう。そのため本番テストでは、上記の『敵対的プロンプト群（確実に遮断すべきデータ）』と対になる
 # 『境界領域の正常な業務質問ベンチマーク（Benign Edge-case Dataset：誤って遮断してはならないデータ）』を同時に流し、
 # 攻撃遮断率（Recall >= 99%）と正常質問通過率（False Positive Rate <= 1%）の双方をCIの合否条件としてバランス調整する。
 
@@ -293,4 +297,4 @@ LLMおよびRAGアプリケーションに対する客観的合否判定マト�
 - **第17章**: Great ExpectationsやEvidently AIによるデータ品質6大特性の保証とドリフト監視。
 - **第18章**: Ragas三原則（Faithfulness、Relevance）、LLM-as-a-Judge、自動レッドチーミングによる生成AI品質保証。
 
-しかし、AIの進化は単一のテキスト生成にとどまらない。現代のソフトウェア工学は、AIが自ら計画を立て、ツールを呼び出し、複数エージェントが協調してコードを自律生成する「自律型AIエージェント時代」へと突入している。続く「第VI部：【未来形】自律型AIエージェント開発環境の品質保証」では、AIがAIを作り出す究極の自動化世界における品質保証の最前線へと踏み込んでいく。
+しかし、AIの進化は単一のテキスト生成にとどまらない。現代のソフトウェア工学は、AIが自ら計画を立て、ツールを呼び出し、複数エージェントが協調してコードを自律生成する「自律型AIエージェント時代」へと突入している。続く「第VI部：自律型AIエージェント開発時代の品質保証」では、AIがAIを作り出す究極の自動化世界における品質保証の最前線へと踏み込んでいく。

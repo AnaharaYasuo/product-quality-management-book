@@ -92,7 +92,7 @@ TestcontainersやWireMockコンテナは決定論的な隔離環境を実現す�
 ```yaml
 # .github/workflows/integration-test-cache.yml（Testcontainers用DockerイメージキャッシュのCI構成例）
 - name: Cache Docker images for Testcontainers
-  uses: actions/cache@v4
+  uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
   with:
     path: /tmp/docker-cache
     key: docker-pg16-${{ runner.os }}
@@ -174,7 +174,7 @@ flowchart TD
 
 ### Self-Healing修正スクリプトの実装例
 
-（※なお、14.3節のE2Eテスト本体はフロントエンド標準のTypeScript/Playwrightで記述していますが、以下のCI横断ユーティリティスクリプトは本書の共通基盤ポリシーに従い、標準ライブラリのみで環境非依存に動作するPythonで記述しています。TypeScriptプロジェクト単体で完結させる場合は、Playwrightのカスタムレポーター `Reporter.onTestEnd` 内でNode.jsの `fetch` を用いて同等のLLM呼び出しを実装できます。）
+（※なお、14.3節のE2Eテスト本体はフロントエンド標準のTypeScript/Playwrightで記述していますが、以下のCI横断ユーティリティスクリプトは本書の共通基盤ポリシーに従い、標準ライブラリのみで環境非依存に動作するPythonで記述している。TypeScriptプロジェクト単体で完結させる場合は、Playwrightのカスタムレポーター `Reporter.onTestEnd` 内でNode.jsの `fetch` を用いて同等のLLM呼び出しを実装できる。）
 
 ```python
 # tools/self_healing_locator.py
@@ -201,8 +201,12 @@ def repair_broken_locator(broken_locator, page_dom_snippet, target_intent):
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"response_mime_type": "application/json"}
     }
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+    )
     with urllib.request.urlopen(req, timeout=15) as resp:
         res = json.loads(resp.read().decode("utf-8"))
         text = res["candidates"][0]["content"]["parts"][0]["text"]
@@ -218,7 +222,7 @@ if __name__ == "__main__":
     print(f"Healed locator result: {healed}")
 ```
 
-※大規模SPAにおけるDOM肥大化とトークン上限への対策：現代のReactやNext.js等で構築された画面の `page.content()`（HTML全文）は容易に数十万文字に達し、そのままプロンプトに投入するとコンテキスト長の制限超過やAPIコストの高騰、推論精度の低下を招く。実務で `page_dom_snippet` を抽出する際は、`<script>` や `<style>`、`<svg>`、Base64画像、冗長なCSSクラス属性をBeautifulSoup等で事前にストリップ（軽量化）します。あるいはPlaywrightの `page.locator('main').ariaSnapshot()`（ARIAツリーのスナップショット）を取得して渡すことで、トークン量を95%以上削減しつつ `getByRole` の推論精度を劇的に高められます。
+※大規模SPAにおけるDOM肥大化とトークン上限への対策：現代のReactやNext.js等で構築された画面の `page.content()`（HTML全文）は容易に数十万文字に達し、そのままプロンプトに投入するとコンテキスト長の制限超過やAPIコストの高騰、推論精度の低下を招く。実務で `page_dom_snippet` を抽出する際は、`<script>` や `<style>`、`<svg>`、Base64画像、冗長なCSSクラス属性をBeautifulSoup等で事前にストリップ（軽量化）する。あるいはPlaywrightの `page.locator('main').ariaSnapshot()`（ARIAツリーのスナップショット）を取得して渡すことで、トークン量を95%以上削減しつつ `getByRole` の推論精度を劇的に高められる。
 
 ### 自己修復テストにおける「誤修復の自動マージ」を防ぐHuman-in-the-Loopガードレール
 
@@ -228,7 +232,7 @@ LLMによるセレクタ自己修復を運用する際、絶対に犯しては�
 
 1. **メインCIは必ず一度Failさせる**: セレクタ解決に失敗した時点で、当該PRのCI自体は決定論的に失敗（Red）させる。
 2. **別ブランチへの修復PR自動起票**: AIが推論した新ロケータ（確信度 `confidence >= 0.90` のものに限る）は、本流へ直接コミットしてはならない。代わりに `fix/self-heal-locator-xxx` という修正提案PRを自動起票し、変更前後のスクリーンショット差分と選択根拠をPR本文に添付する。
-3. **人間の1クリック承認**: 開発者がPR上で「UIデザインの変更に伴う正当なロケータ更新である」ことを目視確認し、Approveしたときのみ本流へマージする。これにより、保守工数を9割削減しつつ、AIの暴走によるテストの骨抜きを100%防ぐことができる。
+3. **人間の1クリック承認**: 開発者がPR上で「UIデザインの変更に伴う正当なロケータ更新である」ことを目視確認し、Approveしたときのみ本流へマージする。これにより、保守工数を大幅に削減しつつ、AIの暴走によるテストの骨抜きを構造的に防止できる。
 
 ---
 

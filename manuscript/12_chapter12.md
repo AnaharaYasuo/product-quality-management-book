@@ -135,7 +135,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Validate PR Body Structure
-        uses: actions/github-script@v7
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           script: |
             const body = context.payload.pull_request.body;
@@ -229,8 +229,8 @@ jobs:
   danger:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: '20'
       - run: npm install --no-save danger
@@ -240,7 +240,7 @@ jobs:
         run: npx danger ci --failOnErrors=true
 ```
 
-※初回実行時のトラブルシューティング：近年のGitHub Actionsでは、リポジトリのデフォルト `GITHUB_TOKEN` 権限が読み取り専用（Read-only）に制限されているケースが多く見られます。そのまま `npx danger ci` を実行すると、`403 Resource not accessible by integration` エラーでコメント投稿に失敗するため注意してください。上記のようにワークフロー内に `permissions: pull-requests: write` を明示することで、初回から確実に動作させることができます。また、PR変更行数の上限閾値（`MAX_CHANGED_LINES = 500`）は現場に応じた調整が有効です。初期構築期や自動生成コードが多い現場ではまず `800〜1,000行（Warnのみ）` から緩やかに始め、逆に決済コア等の高信頼性領域では `300行（超過時はFail）` に引き締めるなど、成熟度に応じたトレードオフ調整を行ってください。
+※初回実行時のトラブルシューティング：近年のGitHub Actionsでは、リポジトリのデフォルト `GITHUB_TOKEN` 権限が読み取り専用（Read-only）に制限されているケースが多く見られる。そのまま `npx danger ci` を実行すると、`403 Resource not accessible by integration` エラーでコメント投稿に失敗するため注意されたい。上記のようにワークフロー内に `permissions: pull-requests: write` を明示することで、初回から確実に動作させることができる。また、PR変更行数の上限閾値（`MAX_CHANGED_LINES = 500`）は現場に応じた調整が有効である。初期構築期や自動生成コードが多い現場ではまず `800〜1,000行（Warnのみ）` から緩やかに始め、逆に決済コア等の高信頼性領域では `300行（超過時はFail）` に引き締めるなど、成熟度に応じたトレードオフ調整を行うこと。
 
 ---
 
@@ -320,8 +320,12 @@ def audit_consistency(pr_body, git_diff):
     }
 
     model_name = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
-    url = f'https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}'
-    req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'})
+    url = f'https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent'
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode('utf-8'),
+        headers={'Content-Type': 'application/json', 'x-goog-api-key': api_key},
+    )
 
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -349,7 +353,7 @@ if __name__ == '__main__':
     sys.exit(0)
 ```
 
-※JSON Modeスキーマ検証とリトライ設計の補足：Gemini APIの `response_schema`（Structured Outputs）を指定することで、出力形式の揺れは大幅に抑えられます。ただし巨大なPR差分を送信した際には、出力の途中切れ（`finishReason: MAX_TOKENS`）による `json.JSONDecodeError` や一時的な通信瞬断が発生することがあります。実運用では `git_diff` を先頭20,000文字にトランケートした上でタイムアウトを `15〜20秒` に設定します。さらにHTTP 429/503発生時には2秒・4秒の指数バックオフ（最大2回リトライ）を挟んでから上記の決定論的フォールバックへ移行する構成とすると、万全の可用性を担保できます。
+※JSON Modeスキーマ検証とリトライ設計の補足：Gemini APIの `response_schema`（Structured Outputs）を指定することで、出力形式の揺れは大幅に抑えられる。ただし巨大なPR差分を送信した際には、出力の途中切れ（`finishReason: MAX_TOKENS`）による `json.JSONDecodeError` や一時的な通信瞬断が発生することがある。実運用では `git_diff` を先頭20,000文字にトランケートした上でタイムアウトを `15〜20秒` に設定する。さらにHTTP 429/503発生時には2秒・4秒の指数バックオフ（最大2回リトライ）を挟んでから上記の決定論的フォールバックへ移行する構成とすると、万全の可用性を担保できる。
 
 ---
 
@@ -439,4 +443,4 @@ stateDiagram-v2
 - **多層防壁の構築**: ローカルの `commitlint` から、GitHub Ruleset、Danger、AI Gatekeeperに至る多段の検証パイプラインを敷く。
 - **例外の制御**: 緊急リリース（Hotfix）を排除するのではなく、透明化された例外レーンと事後負債回収を設計する。
 
-しかし、静的検証によって「ルールに沿ったPR」が揃ったとしても、それだけでは「成果物の本質的な内容が本当に正しいか」までは保証できない。そこで次章（第13章）では、人間とAIが協調して成果物の妥当性を徹底的に吟味する「プロセスの動的検証（Review & Audit）」の極意へと歩を進める。
+しかし、静的検証によって「ルールに沿ったPR」が揃ったとしても、開発フロー全体のどこで滞留（ボトルネック）や特定レビュアーへの負荷集中が起きているかまでは把握できない。そこで次章（第13章）では、DORA指標やフローメトリクス・ジニ係数を用いて開発現場の淀みを定量的に可視化・デバッグする「プロセスの動的検証」へと歩を進める。

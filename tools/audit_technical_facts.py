@@ -344,7 +344,6 @@ def verify_embedded_python_with_ruff_and_exec(md_files: List[Path]) -> Tuple[int
                 ruff_errors.append(f"[Ruff-RawError] {proc.stdout}\n{proc.stderr}")
 
         # Layer 2.5: Dynamic Subprocess Smoke Execution
-        # Create lightweight third-party stubs directly in snippet_dir (sys.path[0] of executed scripts)
         _create_optional_third_party_stubs(snippet_dir)
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
@@ -353,7 +352,6 @@ def verify_embedded_python_with_ruff_and_exec(md_files: List[Path]) -> Tuple[int
 
         for fname, (md_name, block_start, code) in sorted(snippet_meta.items()):
             first_line = code.splitlines()[0].strip() if code.splitlines() else ""
-            # verify_deterministic_anchors.py runs external `mypy --strict src/` which requires a target app repo
             if "verify_deterministic_anchors.py" in first_line:
                 continue
 
@@ -373,7 +371,6 @@ def verify_embedded_python_with_ruff_and_exec(md_files: List[Path]) -> Tuple[int
                 errors="replace",
                 timeout=15,
             )
-            # Check for unhandled Python exceptions (Traceback)
             if "Traceback (most recent call last):" in run_proc.stderr:
                 exec_errors.append(
                     f"[Exec-Crash] {md_name}:{block_start} ({first_line}): 実行時に未処理例外が発生しました:\n{run_proc.stderr.strip()}"
@@ -409,9 +406,9 @@ def run_rag_grounded_llm_audit(kb_raw_yaml: str, md_files: List[Path]) -> List[s
             "generationConfig": {"response_mime_type": "application/json", "temperature": 0.0},
         }
         req = urllib.request.Request(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
             data=json.dumps(req_body).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
         )
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:

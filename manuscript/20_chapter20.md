@@ -78,11 +78,11 @@ flowchart LR
 
 ### 1. Spotifyの品質モデル（Embedded QA & Chapter）
 
-Spotifyでは独立したQA部門を解体し、各フィーチャースクワッド（Squad）内にQAエンジニアを組み込む「Embedded QA」モデルを採用した。QAはテストを行うのではなく、スプリントプランニングでの受入基準策定や、開発者への探索的テスト手法の伝授を担当する。横断的な「QAチャプター」が組織全体のツール基盤やベストプラクティスを統制する。
+Spotifyが公開した組織モデル（Kniberg & Ivarsson, *Scaling Agile @ Spotify*, 2012）では、独立した従来型QA部門への依存を脱却した。各スクワッド（Squad）内に品質専門家を組み込む「Embedded QA」と、横断的な「QA Chapter（職能チャプター）」のマトリクス構造を採用している。QAは下流の手動テスト請負人ではなく、スプリントプランニングでの受入基準策定や開発者へのテスト手法支援を担い、QAチャプターが組織全体のツール基盤やベストプラクティスを共有する。
 
-### 2. SmartHRやメルカリのQAイネーブルメント
+### 2. SmartHRやメルカリのQAイネーブルメント実践
 
-急成長する日本のSaaS/メガベンチャー各社でも、専任QAが全機能を手動テストする体制の限界を迎え、「QAイネーブルメント組織」への大転換が進んだ。QAが手動テストの実行を請け負うことを原則禁止とし、開発者が自らテスト設計を行い、テストコードをコミットするための「テスト設計ワークショップ」「ドメイン品質ガイドライン」「Playwright自動化テンプレート」を社内プロダクトとして開発・提供している。
+日本のSaaS・メガベンチャー各社でも、専任QAが全機能を手動テストする体制の限界から「QAイネーブルメント組織」への転換が進んでいる。代表的な一次事例として、SmartHR Tech BlogでのQAイネーブルメント実践報告や、Mercari EngineeringでのQA Automation / Enablingチームの取り組みが公開されている。QAが手動テストの実行を請け負うことを原則禁止とし、開発者が自らテスト設計を行い、テストコードをコミットするための「テスト設計ワークショップ」「ドメイン品質ガイドライン」「Playwright自動化テンプレート」を社内プロダクトとして開発・提供している。
 
 ### 各社の組織変革から抽出される共通成功パターン
 
@@ -146,8 +146,12 @@ def provide_quality_coaching(pr_title, pr_diff, domain_rules):
     payload = {
         "contents": [{"role": "user", "parts": [{"text": f"{system_prompt}\n\n{user_content}"}]}]
     }
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+    )
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             res = json.loads(resp.read().decode("utf-8"))
@@ -183,7 +187,7 @@ jobs:
   coach:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Run AI Quality Coach
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
