@@ -82,7 +82,7 @@ PRがオープンされてからマージされるまでの総サイクルタイ
 
 GitHubのGraphQL APIを用いてPRレビュアーごとのアサイン数、承認数、レビューコメント数を抽出し、ジニ係数（不平等度指数）を算出する。ジニ係数が0.5を超える場合、知識のサイロ化とレビュー渋滞が発生していると判定する。
 
-なお、以下のスクリプト（および13.5節のAIスクラムマスター）はPython 3.10以降の標準ライブラリ（`urllib.request`, `json`, `collections`）のみで動作します。外部パッケージの `pip install` は一切不要であり、クローンしたその場ですぐに実行可能です。事前準備として、GitHubのSettings ➔ Developer settings ➔ Personal access tokensからトークンを発行します。スコープはFine-grained PATなら対象リポジトリの `Pull requests: Read-only` と `Metadata: Read-only`、Classic PATなら `repo` と `read:org` を選択します。あとはターミナルで `export GITHUB_TOKEN="ghp_xxx"`（PowerShellなら `$env:GITHUB_TOKEN="ghp_xxx"`）を設定するだけで準備完了です。
+なお、以下のスクリプト（および13.5節のAIスクラムマスター）はPython 3.10以降の標準ライブラリ（`urllib.request`, `json`, `collections`）のみで動作する。外部パッケージの `pip install` は一切不要であり、クローンしたその場ですぐに実行可能である。事前準備として、GitHubのSettings ➔ Developer settings ➔ Personal access tokensからトークンを発行する。スコープはFine-grained PATなら対象リポジトリの `Pull requests: Read-only` と `Metadata: Read-only`、Classic PATなら `repo` と `read:org` を選択する。あとはターミナルで `export GITHUB_TOKEN="ghp_xxx"`（PowerShellなら `$env:GITHUB_TOKEN="ghp_xxx"`）を設定するだけで準備完了である。
 
 ```python
 # tools/analyze_review_bottlenecks.py
@@ -104,9 +104,11 @@ def fetch_pull_requests(owner, repo, token):
     if not token:
         # GITHUB_TOKEN 未設定環境でもローカル動作確認できるようサンプルPRレビューデータを返却
         sample_nodes = (
-            [{"reviews": {"nodes": [{"author": {"login": "tech-lead-A"}, "state": "APPROVED"}]}}] * 68
-            + [{"reviews": {"nodes": [{"author": {"login": "senior-dev-B"}, "state": "APPROVED"}]}}] * 25
-            + [{"reviews": {"nodes": [{"author": {"login": "member-C"}, "state": "APPROVED"}]}}] * 12
+            [{"reviews": {"nodes": [{"author": {"login": "tech-lead-A"}, "state": "APPROVED"}]}}] * 78
+            + [{"reviews": {"nodes": [{"author": {"login": "senior-dev-B"}, "state": "APPROVED"}]}}] * 12
+            + [{"reviews": {"nodes": [{"author": {"login": "member-C"}, "state": "APPROVED"}]}}] * 5
+            + [{"reviews": {"nodes": [{"author": {"login": "member-D"}, "state": "APPROVED"}]}}] * 3
+            + [{"reviews": {"nodes": [{"author": {"login": "member-E"}, "state": "APPROVED"}]}}] * 2
         )
         return {"data": {"repository": {"pullRequests": {"nodes": sample_nodes}}}}
 
@@ -165,10 +167,12 @@ if __name__ == "__main__":
 # CLIでの実行コマンドと出力サンプル（リポジトリルートの tools/ 配下に配置して実行）
 $ python tools/analyze_review_bottlenecks.py my-org payment-service
 === レビュアー負荷分散分析 ===
-User: tech-lead-A     | レビュー参加数:  68 件 ( 64.8%)
-User: senior-dev-B    | レビュー参加数:  25 件 ( 23.8%)
-User: member-C        | レビュー参加数:  12 件 ( 11.4%)
-レビュアー偏り指数（ジニ係数）: 0.533 (0.50超でSPOF警告)
+User: tech-lead-A     | レビュー参加数:  78 件 ( 78.0%)
+User: senior-dev-B    | レビュー参加数:  12 件 ( 12.0%)
+User: member-C        | レビュー参加数:   5 件 (  5.0%)
+User: member-D        | レビュー参加数:   3 件 (  3.0%)
+User: member-E        | レビュー参加数:   2 件 (  2.0%)
+レビュアー偏り指数（ジニ係数）: 0.644 (0.50超でSPOF警告)
 ```
 
 ---
@@ -236,8 +240,12 @@ def generate_process_diagnosis(sprint_metrics):
     }
     # 将来のモデル更新や非推奨化に備え、モデル名は環境変数（GEMINI_MODEL）で外部から柔軟に切り替え可能とする
     model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+    )
     with urllib.request.urlopen(req, timeout=15) as resp:
         result = json.loads(resp.read().decode("utf-8"))
         return result["candidates"][0]["content"]["parts"][0]["text"]
@@ -249,7 +257,7 @@ if __name__ == "__main__":
         "lead_time_hours": 54.0,
         "change_failure_rate": 0.14,
         "first_review_wait_hours": 19.5,
-        "reviewer_gini": 0.533,
+        "reviewer_gini": 0.644,
     }
     print(generate_process_diagnosis(sample_metrics))
 ```
@@ -300,12 +308,12 @@ if __name__ == "__main__":
 
 1. **直近20件のPRログの収集**:
    - 直近1ヶ月にマージされたPRの中から代表的な20件を抽出し、以下の3つの時刻を記録する。
-     - $T_0$: 最初のコミット時刻
-     - $T_1$: PRオープン時刻
-     - $T_2$: 初回レビューコメント時刻
-     - $T_3$: マージ時刻
+     - `T0`: 最初のコミット時刻
+     - `T1`: PRオープン時刻
+     - `T2`: 初回レビューコメント時刻
+     - `T3`: マージ時刻
 2. **タイムラインの可視化**:
-   - コーディング時間（$T_1 - T_0$）、放置時間（$T_2 - T_1$）、対話・CI時間（$T_3 - T_2$）の平均値および最大値を算出する。
+   - コーディング時間（`T1 - T0`）、放置時間（`T2 - T1`）、対話・CI時間（`T3 - T2`）の平均値および最大値を算出する。
 3. **ボトルネック比率の算出**:
    - 総リードタイムに占める「放置時間」の割合を算出する。もし放置時間が全体の40%以上を占めている場合、最優先課題は自動化ではなくレビュープロトコルの見直しである。
 4. **リファクタリング計画の策定**:
@@ -322,4 +330,4 @@ if __name__ == "__main__":
 - **第12章**: ルール違反を物理的に遮断するブランチ保護、commitlint、AI Gatekeeperによる「プロセスの静的検証」。
 - **第13章**: DORA指標やフローメトリクスを用いてプロセスの詰まりを暴き、リファクタリングする「プロセスの動的検証」。
 
-プロセスの確証基盤が強固に整った今、私たちは次の戦場へと進む。続く「第IV部：【前進】動的検証・シフトライト・セキュリティ確証」では、実際に稼働するプロダクトコードを対象とした高度なテスト技法、カオスエンジニアリング、シフトライト監視、そしてセキュリティ確証の最前線へと踏み込んでいく。
+プロセスの確証基盤が強固に整った今、私たちは次の戦場へと進む。続く「第IV部：動的検証・シフトライト・セキュリティ品質」では、実際に稼働するプロダクトコードを対象とした高度なテスト技法、カオスエンジニアリング、シフトライト監視、そしてセキュリティ確証の最前線へと踏み込んでいく。

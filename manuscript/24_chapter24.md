@@ -60,7 +60,7 @@ flowchart TD
 ### 各階層のアンカー
 
 1. **第1層：静的型システム・コンパイラ（Static Type Anchors）**:
-   - 型は解釈の余地のない数学的証明です。`mypy --strict` や `tsc --noEmit` が0を返さない限り、AIがどれほど流暢に弁明しても1ミリたりとも前に進まない。
+   - 型は解釈の余地のない数学的証明である。`mypy --strict` や `tsc --noEmit` が0を返さない限り、AIがどれほど流暢に弁明しても1ミリたりとも前に進まない。
 2. **第2層：契約と不変量（Contractual Anchors）**:
    - 関数の事前条件（Preconditions）、事後条件（Postconditions）、不変量（Invariants）をコードで固定する。PydanticやZodを用いて、実行時に入出力の型と値の範囲を物理的に縛る。
 3. **第3層：隔離実行環境（Sandbox Runtime Anchors）**:
@@ -77,7 +77,7 @@ flowchart TD
 
 ### 実装例：Pydanticによる実行時契約アンカー
 
-AIエージェントが生成するデータ構造やAPIペイロードが、実行時に不変量を満たしているかを厳格に保証するコード例です。
+AIエージェントが生成するデータ構造やAPIペイロードが、実行時に不変量を満たしているかを厳格に保証するコード例である。
 
 ```python
 # core/contract_anchors.py
@@ -99,23 +99,23 @@ class PaymentTransaction(BaseModel):
         return v
 ```
 
-AIがどのようなハルシネーションを起こして未知の通貨やマイナスの金額を出力しようとしても、この契約アンカーが実行時例外（ValidationError）を発生させ、即座にトランザクションを遮断します。
+AIがどのようなハルシネーションを起こして未知の通貨やマイナスの金額を出力しようとしても、この契約アンカーが実行時例外（ValidationError）を発生させ、即座にトランザクションを遮断する。
 
 ---
 
-## 24.3 なぜMeta TestGen-LLMは成功したのか：物理的フィルターの勝利
+## 24.3 なぜMeta TestGen-LLMとACHは成功したのか：物理的フィルターの勝利
 
-Meta社がInstagram等の巨大コードベースに導入し、世界初の商用規模での「LLMによる単体テスト自動生成」に成功した事例として有名なのが `TestGen-LLM`（およびその発展形ACH）である。
+Meta社が商用規模での単体テスト自動改善に成功した事例が `TestGen-LLM`（Alshahwanら, *Automated Unit Test Improvement using Large Language Models at Meta*, FSE 2024）である。さらにその発展形として、変異テストを統合した `ACH`（*Mutation-Guided LLM-based Test Generation at Meta*, 2025）が発表されている。
 
-この研究における最も重要な示唆は、「TestGen-LLMの成功の秘密は、LLMの賢さではなく、LLMの後段に配置された徹底的に冷酷な『決定論的フィルター』にある」という事実である。
+これら一連の研究における最も重要な示唆は、「成功の秘密はLLM単体の賢さではなく、LLMの後段に配置された冷徹な『決定論的フィルター群』にある」という事実である。
 
-### TestGen-LLMの5段階決定論的フィルター
+### TestGen-LLMからACHへと至る5段階決定論的フィルター
 
-1. **ビルド可能検査（Build Filter）**: 生成されたテストがコンパイルを通るか？（通らなければ即時破棄）
-2. **実行可能性検査（Execution Filter）**: 生成されたテストがクラッシュせずに実行できるか？
-3. **既存パス検査（Clean Pass Filter）**: 現在の実装コードに対してテストが緑（Pass）になるか？（偽陰性の排除）
-4. **カバレッジ増分検査（Coverage Increase Filter）**: 既存のテストスイートに対して、真に新しい実行パス（行カバレッジ）を1行でも増やしているか？（冗長テストの排除）
-5. **変異テスト検査（Mutation Filter）**: 実装コードに変異を加えた際、その変異体を正しく殺害できるか？（中身のない嘘テストの排除）
+1. **ビルド可能検査（Build Filter / TestGen-LLM）**: 生成されたテストがコンパイルを通るか？（通らなければ即時破棄）
+2. **実行可能性検査（Execution Filter / TestGen-LLM）**: 生成されたテストがクラッシュせずに実行できるか？
+3. **非Flaky・反復パス検査（Flakiness & Clean Pass Filter / TestGen-LLM）**: 現在の実装コードに対して複数回反復実行しても安定して緑（Pass）になるか？（偽陰性とFlakyテストの排除）
+4. **カバレッジ増分検査（Coverage Increase Filter / TestGen-LLM）**: 既存のテストスイートに対して、真に新しい実行パス（行・分岐カバレッジ）を増やしているか？（冗長テストの排除）
+5. **変異テスト検査（Mutation Filter / ACHでの拡張）**: 後続の `ACH` で統合されたフィルター。実装コードにフォールト（変異体）を注入した際、その変異体を確実に検出・殺害（Kill）できるか？（カバレッジだけを増やす空洞テストの排除）
 
 LLMが数千パターンのテストを生成しても、この5つの冷酷な物理フィルターを全て突破できるのは全体の20〜30%に過ぎない。この「残った純度100%のテスト」だけを人間のPRとして提出したからこそ、MetaのエンジニアはAIを信頼し、70%以上の高採択率を記録したのである。
 
