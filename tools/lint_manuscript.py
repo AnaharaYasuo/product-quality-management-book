@@ -226,8 +226,11 @@ def lint_markdown(file_path: str):
                 )
 
         # 7. 技術用語・概念契約 & 誤変換チェック
+        #    断定表現の検査は「」内の引用（失敗談で引用する当時のプロンプト等）を除外して行う
+        line_without_quotes = re.sub(r"「[^」]*」", "", line)
         for pat, msg in TERMINOLOGY_CONTRACTS:
-            if re.search(pat, line):
+            target = line_without_quotes if msg.startswith("[Hyperbole-Contract]") else line
+            if re.search(pat, target):
                 issues.append(f"Line {idx}: {msg}")
 
     if in_code_block:
