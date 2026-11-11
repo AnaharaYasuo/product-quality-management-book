@@ -10,16 +10,15 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
-# 00_intro.md で定義された全8部の正式名称（Part Title Contract）
+# 00_intro.md で定義された全7部の正式名称（Part Title Contract）
 CANONICAL_PART_TITLES = {
     "I": "第I部：パラダイムシフトと二大成果物モデル",
     "II": "第II部：プロダクト成果物の検証・レビュー・監査",
     "III": "第III部：開発プロセス成果物のバリエーションと品質保証",
     "IV": "第IV部：動的検証・シフトライト・セキュリティ品質",
-    "V": "第V部：AIプロダクト（非決定論的システム）の品質保証",
-    "VI": "第VI部：自律型AIエージェント開発時代の品質保証",
-    "VII": "第VII部：組織変革・カルチャーと品質の未来",
-    "VIII": "第VIII部：品質のトレードオフ・倫理・現場のリアリズム",
+    "V": "第V部：AIプロダクトと自律型AIエージェントの品質保証",
+    "VI": "第VI部：組織変革・カルチャーと品質の未来",
+    "VII": "第VII部：品質のトレードオフ・倫理・現場のリアリズム",
 }
 
 # 各章の正規テーマキーワード定義（次章予告や他章参照が旧構成の草案と食い違っていないかを決定論的に検査）
@@ -59,9 +58,9 @@ def check_structure(file_path):
 
     filename = Path(file_path).name
 
-    # 全ファイル対象：部タイトル（第I部〜第VIII部）の正式名称整合性チェック
+    # 全ファイル対象：部タイトル（第I部〜第VII部）の正式名称整合性チェック
     for idx, line in enumerate(content.splitlines(), 1):
-        for m_part in re.finditer(r"第(I|II|III|IV|V|VI|VII|VIII)部：([^」』\n|]+)", line):
+        for m_part in re.finditer(r"第(VIII|VII|VI|V|IV|III|II|I)部：([^」』\n|]+)", line):
             roman = m_part.group(1)
             full_ref = f"第{roman}部：{m_part.group(2).strip()}"
             expected = CANONICAL_PART_TITLES.get(roman)

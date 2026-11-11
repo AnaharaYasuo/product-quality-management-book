@@ -107,7 +107,7 @@ AIがどのようなハルシネーションを起こして未知の通貨やマ
 
 Meta社が商用規模での単体テスト自動改善に成功した事例が `TestGen-LLM`（Alshahwanら, *Automated Unit Test Improvement using Large Language Models at Meta*, FSE 2024）である。さらにその発展形として、変異テストを統合した `ACH`（*Mutation-Guided LLM-based Test Generation at Meta*, 2025）が発表されている。
 
-これら一連の研究における最も重要な示唆は、「成功の秘密はLLM単体の賢さではなく、LLMの後段に配置された冷徹な『決定論的フィルター群』にある」という事実である。
+各フィルターの詳細と簡略実装は第9章9.5節で扱ったので、ここでは決定論的アンカーの観点から要点だけを振り返る。これら一連の研究における最も重要な示唆は、「成功の秘密はLLM単体の賢さではなく、LLMの後段に配置された冷徹な『決定論的フィルター群』にある」という事実である。
 
 ### TestGen-LLMからACHへと至る5段階決定論的フィルター
 

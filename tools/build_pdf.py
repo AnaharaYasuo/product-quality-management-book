@@ -152,8 +152,21 @@ def build_combined_html(repo_dir: Path, html_out: Path) -> int:
 
         chapters_html.append(f'<section class="chapter-section" data-source="{f.name}">\n{html_body}\n</section>')
 
+    # 目次に部（Part）の区切りを表示する（キー: その部の最初の章番号）
+    part_starts = {
+        1: "第I部：パラダイムシフトと二大成果物モデル",
+        3: "第II部：プロダクト成果物の検証・レビュー・監査",
+        10: "第III部：開発プロセス成果物のバリエーションと品質保証",
+        14: "第IV部：動的検証・シフトライト・セキュリティ品質",
+        17: "第V部：AIプロダクトと自律型AIエージェントの品質保証",
+        20: "第VI部：組織変革・カルチャーと品質の未来",
+        22: "第VII部：品質のトレードオフ・倫理・現場のリアリズム",
+    }
     toc_html = ['<nav class="toc-page"><h1 class="toc-title">目次（Table of Contents）</h1><ul class="toc-root">']
     for ch_id, title_text, h2_list in toc_items:
+        m_ch = re.match(r"第(\d+)章", title_text)
+        if m_ch and int(m_ch.group(1)) in part_starts:
+            toc_html.append(f'<li class="toc-part">{part_starts[int(m_ch.group(1))]}</li>')
         toc_html.append(f'<li class="toc-h1"><a href="#{ch_id}">{title_text}</a>')
         if h2_list:
             toc_html.append('<ul class="toc-h2">')
@@ -230,6 +243,15 @@ body {{
 .toc-root {{
   list-style: none;
   padding-left: 0;
+}}
+
+.toc-part {{
+  margin-top: 14pt;
+  padding: 3pt 6pt;
+  background: #eef3f8;
+  color: #1a3c5a;
+  font-weight: bold;
+  font-size: 11pt;
 }}
 
 .toc-h1 {{
@@ -364,8 +386,9 @@ th {{
     <div class="book-subtitle">高品質なプロダクトを継続的に届けるための設計とプロセス<br>（AI時代のプロダクト・プロセス確証バイブル）</div>
     <div class="book-meta">
       <p>著者：Anahara Yasuo</p>
-      <p>版数：第1版 第1刷（全8部・25章＋巻末付録）</p>
+      <p>版数：第1版 第1刷（全7部・25章＋巻末付録）</p>
       <p>Copyright © 2026 Anahara Yasuo. All rights reserved.</p>
+      <p>掲載サンプルコードは MIT License で提供（LICENSE-CODE 参照）</p>
     </div>
   </div>
   {''.join(toc_html)}
