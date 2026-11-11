@@ -125,7 +125,7 @@ QAチームは、これらの検証活動を「邪道」と排斥するのでは
 
 ### プレトタイピング・フェイクドアにおける倫理的配慮とクローズドB2B環境でのValidation手法
 
-ただし、フェイクドアやプレトタイピングを実践する際は、**「ユーザーの信頼を毀損するダークパターン（欺瞞的UI）やプライバシー侵害に陥らないための倫理的ガードレール」**が不可欠である。決済画面や医療・金融手続きの直前で「実はこの機能はまだ存在しません」と表示すれば、ユーザーは騙されたと感じてブランドへの信頼（ISO 25019の満足度・リスク回避性）は地に落つ。フェイクドアを実施する際は、①「ベータ機能ラボ（先行プレビュー枠）」であることを明示して期待値を誠実にコントロールすること、②クリックイベントの集計時は個人情報（PII）や入力フォームの機密データを一切保存せず、匿名化された関心度カウントのみを取得すること、を絶対の品質規律として守らなければならない。
+ただし、フェイクドアやプレトタイピングを実践する際は、**「ユーザーの信頼を毀損するダークパターン（欺瞞的UI）やプライバシー侵害に陥らないための倫理的ガードレール」**が不可欠である。決済画面や医療・金融手続きの直前で「実はこの機能はまだ存在しません」と表示すれば、ユーザーは騙されたと感じてブランドへの信頼（ISO 25019の満足度・リスク回避性）は地に落ちる。フェイクドアを実施する際は、①「ベータ機能ラボ（先行プレビュー枠）」であることを明示して期待値を誠実にコントロールすること、②クリックイベントの集計時は個人情報（PII）や入力フォームの機密データを一切保存せず、匿名化された関心度カウントのみを取得すること、を絶対の品質規律として守らなければならない。
 
 また、「オンプレミスや閉域網で稼働するレガシーなB2Bエンタープライズ環境であり、セキュリティ制約上エンドユーザーの行動テレメトリ（PostHogやGoogle Analytics等）を外部送信できない」という現場も少なくない。そのようなクローズド環境におけるValidationは、以下の3つの代替アプローチで実践する。
 
@@ -193,7 +193,7 @@ flowchart LR
 
 ## 25.5 実装例：利用実態ログとAI妥当性監査パイプライン
 
-ユーザー行動ログから「価値の出ていない機能（ゾンビ候補）」を自動検出し、ISO 25019の利用時品質メトリクスに基づいて機能廃止または改善提案のGitHub Issueを起票するPythonスクリプトの実装例である。
+ユーザー行動ログから「価値の出ていない機能（ゾンビ候補）」を自動検出し、ISO 25019の利用時品質メトリクスに基づいて機能廃止または改善提案のGitHub Issueを起票するPythonスクリプトの実装例である。判定基準は本書共通の「90日間のDAU/MAU比0.5%未満」とする。また、本番データを読めないときにデモデータで代用すると、存在しないゾンビ機能が毎週Issueとして起票されてしまう。そこで、データソースが無い場合や集計結果が0件の場合は監査そのものを失敗させ、デモデータは `--demo` を指定したときだけ使う。
 
 ```python
 # tools/audit_product_validation.py
@@ -262,7 +262,11 @@ class ProductValidationAuditor:
 
 
 def fetch_metrics_from_db_or_api(dsn: str) -> list[FeatureUsageMetric]:
-    """実運用でのデータ取得イメージ：DWH（BigQuery / PostgreSQL）やPostHog APIから直近30日の機能別集計を取得する接続アダプタ"""
+    """DWH（BigQuery / PostgreSQL）やPostHog APIから直近90日の機能別集計を取得する接続アダプタ。
+
+    自社のデータ基盤に合わせて実装する。未実装のまま空リストを返すと
+    「監査したが問題なし」と誤認されるため、未実装なら例外を送出する。
+    """
     # [連携パターン1: BigQuery / PostgreSQL のイベントテーブルから直接SQL集計する場合]
     # query = """
     #   SELECT feature_id, ANY_VALUE(feature_name) AS feature_name,
@@ -271,24 +275,45 @@ def fetch_metrics_from_db_or_api(dsn: str) -> list[FeatureUsageMetric]:
     #          COUNT(DISTINCT CASE WHEN event_type = 'feature_completed' THEN user_id END) AS completed_count,
     #          AVG(CASE WHEN event_type = 'feature_completed' THEN duration_sec END) AS avg_duration_sec,
     #          COUNTIF(event_type = 'feature_error') AS error_count
-    #   FROM `my_project.analytics.user_events` WHERE event_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
+    #   FROM `my_project.analytics.user_events` WHERE event_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)
     #   GROUP BY feature_id
     # """
     # [連携パターン2: PostHog HogQL API / Query Endpoint を用いてSaaSから直接JSON取得する場合]
     # PostHogのQuery APIエンドポイント（/api/projects/<project_id>/query/）へ {"query": {"kind": "HogQLQuery", "query": query}} をPOST送信
-    return []
+    raise NotImplementedError("データ基盤への接続アダプタを実装してください")
 
 
-if __name__ == "__main__":
-    # 実環境では os.environ.get("ANALYTICS_DB_DSN") があれば fetch_metrics_from_db_or_api() を呼び出し、未設定時はモックで検証
-    mock_metrics = [
+DEMO_METRICS = [
         FeatureUsageMetric("feat_ai_summary", "AI自動要約機能", 10000, 4200, 3900, 12.4, 45),
         FeatureUsageMetric("feat_legacy_csv_export", "レガシー独自形式CSV出力", 10000, 15, 8, 140.2, 3),
         FeatureUsageMetric("feat_bulk_approval", "一括承認ワークフロー", 10000, 1800, 750, 88.0, 310)
-    ]
+]
+
+
+if __name__ == "__main__":
+    import os
+    import sys
+
+    if "--demo" in sys.argv:
+        # 本文の説明用。デモデータで起票まで走らないよう、出力の先頭に明記する
+        print("[DEMO] デモデータによる出力です（本番データではありません）")
+        metrics = DEMO_METRICS
+    else:
+        dsn = os.environ.get("ANALYTICS_DB_DSN")
+        if not dsn:
+            print("❌ ANALYTICS_DB_DSN が未設定です。本番データを読めないため監査できません。", file=sys.stderr)
+            sys.exit(1)
+        try:
+            metrics = fetch_metrics_from_db_or_api(dsn)
+        except NotImplementedError as exc:
+            print(f"❌ {exc}", file=sys.stderr)
+            sys.exit(1)
+        if not metrics:
+            print("❌ 集計結果が0件です。データ取得に失敗している可能性があるため監査を中止します。", file=sys.stderr)
+            sys.exit(1)
 
     auditor = ProductValidationAuditor()
-    report = auditor.evaluate_features(mock_metrics)
+    report = auditor.evaluate_features(metrics)
 
     print("=== ISO/IEC 25019 プロダクト妥当性（Validation）監査レポート ===")
     print(f"健全な機能数: {len(report['healthy_features'])}")
@@ -332,10 +357,11 @@ jobs:
 
       - name: Run Product Validation Audit
         env:
-          ANALYTICS_API_KEY: ${{ secrets.PRODUCT_ANALYTICS_API_KEY }}
+          ANALYTICS_DB_DSN: ${{ secrets.ANALYTICS_DB_DSN }}
         run: |
-          python tools/audit_product_validation.py > validation_report.txt
-          cat validation_report.txt
+          set -o pipefail
+          # データを読めない場合はここで失敗し、後続のIssue起票は実行されない
+          python tools/audit_product_validation.py | tee validation_report.txt
 
       - name: File Issue for Deprecation Candidates
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
@@ -343,7 +369,7 @@ jobs:
           script: |
             const fs = require('fs');
             const report = fs.readFileSync('validation_report.txt', 'utf8');
-            if (report.includes('ゾンビ機能（廃止・削除推奨）: 0')) {
+            if (report.includes('[DEMO]') || report.includes('ゾンビ機能（廃止・削除推奨）: 0')) {
               console.log('No deprecation candidates found.');
               return;
             }

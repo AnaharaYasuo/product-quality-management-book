@@ -253,110 +253,118 @@ jobs:
 
 例えば、PRテンプレートに `[x] 単体テストを実行し全件パスを確認した`、`[x] ドキュメントを最新化した` と記載されていながら、Gitの変更差分にはテストコードの修正もドキュメントファイルの更新も存在しないというケースは日常的に発生する。人間レビュアーはこれを突き合わせる作業に多大な認知リソースを浪費するか、あるいは「チェックがついているから大丈夫だろう」と盲目的に信じてスルーしてしまう。
 
-この課題を解決するため、Git差分とPR本文のDoDチェックボックスを突合し、乖離を機械的に糾弾する「AI Process Gatekeeper」をCIパイプラインに組み込む。
+この課題を解決するため、Git差分とPR本文のDoDチェックボックスを突合する「AI Process Gatekeeper」をCIパイプラインに組み込む。
+
+設計の原則は、**マージを止めるのは決定論的に判定できる乖離だけ**にすることである。LLMによる意味的な照合は見落としを拾うのに役立つが、誤判定もある。そこでLLMの結果は助言として扱い、指摘があったときやAPI障害で監査できなかったときは、人のレビューへエスカレーションする（第8章・第24章と同じ方針）。
 
 ```mermaid
 flowchart TD
     A["PR作成または差分更新"] --> B["AI Process Gatekeeper (CI)"]
-    B --> C["PR本文のDoD抽出"]
-    B --> D["git diffの変更ファイル一覧抽出"]
-    C --> E{"LLMによるセマンティック整合性検証"}
-    D --> E
-    E -->|"申告と差分が完全一致"| F["CI Pass: Status Green"]
-    E -->|"乖離検知（虚偽・未達）"| G["PRへ自動警告 & CI Failure"]
-    G --> H["開発者が修正して再プッシュ"]
-    H --> B
+    B --> C{"決定論的チェック
+(チェック項目と変更ファイルの機械照合)"}
+    C -->|"違反あり"| G["CI Failure（ハードブロック）"]
+    C -->|"違反なし"| E{"LLMによる意味的照合（助言）"}
+    E -->|"食い違いなし"| F["CI Pass"]
+    E -->|"指摘あり / API障害"| H["needs-human-review ラベル付与
+人のレビューで判断"]
+    G --> R["開発者が修正して再プッシュ"]
+    R --> B
 ```
 
 ### AI Gatekeeperの実装スクリプト
 
 ```python
 # tools/ai_gatekeeper_check.py
-import os
-import sys
-import subprocess
 import json
+import os
+import re
+import subprocess
+import sys
 import urllib.error
 import urllib.request
 
-def get_git_diff():
-    # mainブランチとの差分統計および変更ファイル名を取得（浅いクローン時はHEAD~1へフォールバック）
-    result = subprocess.run(['git', 'diff', '--name-status', 'origin/main...HEAD'], capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        result = subprocess.run(['git', 'diff', '--name-status', 'HEAD~1...HEAD'], capture_output=True, text=True, check=False)
-    return result.stdout
+NEEDS_HUMAN = "NEEDS_HUMAN_REVIEW"
 
-def audit_consistency(pr_body, git_diff):
-    api_key = os.environ.get('GEMINI_API_KEY')
+
+def get_changed_files() -> list[str]:
+    for base in ("origin/main...HEAD", "HEAD~1...HEAD"):  # 浅いクローン時は HEAD~1 にフォールバック
+        res = subprocess.run(
+            ["git", "diff", "--name-only", base], capture_output=True, text=True, encoding="utf-8", errors="replace", check=False
+        )
+        if res.returncode == 0:
+            return [f for f in res.stdout.splitlines() if f.strip()]
+    return []
+
+
+def deterministic_check(pr_body: str, files: list[str]) -> list[str]:
+    """機械的に判定できる乖離だけを、ハードブロックの対象にする。"""
+    errors = []
+    checked = lambda label: re.search(rf"- \[[xX]\] .*{label}", pr_body) is not None  # noqa: E731
+    if checked("テスト") and not any("test" in f.lower() or "spec" in f.lower() for f in files):
+        errors.append("「テスト追加済み」にチェックがありますが、テストファイルの変更がありません。")
+    if checked("ドキュメント") and not any(f.endswith(".md") or f.startswith("docs/") for f in files):
+        errors.append("「ドキュメント更新済み」にチェックがありますが、ドキュメントの変更がありません。")
+    return errors
+
+
+def llm_advisory(pr_body: str, files: list[str]) -> dict:
+    """意味的な乖離をLLMに指摘させる。結果は助言として扱い、マージ可否は決めない。"""
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        print('GEMINI_API_KEY is not set. Skipping AI Gatekeeper.')
-        return True, 'Skipped'
-
-    system_prompt = (
-        'あなたは厳格なソフトウェア開発プロセス監査官（AI Gatekeeper）です。\n'
-        'PR本文に記載されたチェックリスト（DoD）と、実際のGit変更差分（ファイルリスト）を照合し、\n'
-        '虚偽のチェックや実態との乖離が存在しないかを厳格に検証してください。\n\n'
-        '【判定基準】\n'
-        '1. PRで「ドキュメント更新済み」にチェックがあるのに、*.md や docs/ の変更がない場合はFAIL。\n'
-        '2. 「テスト追加・実行済み」にチェックがあるのに、tests/ や *_test.* の変更がない場合はFAIL。\n'
-        '3. 疑わしい点が一切なく整合している場合のみ PASS と判定すること。'
+        return {"verdict": NEEDS_HUMAN, "reasons": ["APIキー未設定のためAI監査は未実施"]}
+    prompt = (
+        "PR本文の申告内容と変更ファイル一覧を照合し、申告と実態の食い違いを列挙してください。\n"
+        "食い違いが無ければ verdict を PASS、あれば FAIL としてください。\n\n"
+        f"【PR本文】:\n{pr_body[:5000]}\n\n【変更ファイル一覧】:\n" + "\n".join(files[:300])
     )
-
-    user_content = f'【PR本文】:\n{pr_body}\n\n【Git変更ファイル一覧】:\n{git_diff}'
-
     payload = {
-        'contents': [
-            {'role': 'user', 'parts': [{'text': f'{system_prompt}\n\n{user_content}'}]}
-        ],
-        'generationConfig': {
-            'response_mime_type': 'application/json',
-            'response_schema': {
-                'type': 'OBJECT',
-                'properties': {
-                    'verdict': {'type': 'STRING', 'enum': ['PASS', 'FAIL']},
-                    'reasons': {'type': 'ARRAY', 'items': {'type': 'STRING'}},
-                    'corrective_actions': {'type': 'ARRAY', 'items': {'type': 'STRING'}}
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "response_mime_type": "application/json",
+            "response_schema": {
+                "type": "OBJECT",
+                "properties": {
+                    "verdict": {"type": "STRING", "enum": ["PASS", "FAIL"]},
+                    "reasons": {"type": "ARRAY", "items": {"type": "STRING"}},
                 },
-                'required': ['verdict', 'reasons', 'corrective_actions']
-            }
-        }
+                "required": ["verdict", "reasons"],
+            },
+        },
     }
-
-    model_name = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
-    url = f'https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent'
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
     req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode('utf-8'),
-        headers={'Content-Type': 'application/json', 'x-goog-api-key': api_key},
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
     )
-
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            res_data = json.loads(resp.read().decode('utf-8'))
-            text_response = res_data['candidates'][0]['content']['parts'][0]['text']
-            audit_result = json.loads(text_response)
-            return audit_result['verdict'] == 'PASS', audit_result
-    except (urllib.error.URLError, json.JSONDecodeError, KeyError, TimeoutError) as e:
-        # LLM APIのレートリミットや一時障害時にCI全体を止めないための決定論的フォールバック
-        print(f'[WARN] AI API call failed ({e}). Running deterministic fallback check...')
-        has_test_diff = any('test' in line.lower() for line in git_diff.splitlines())
-        claims_test = '[x] 単体テスト' in pr_body or '[x] テスト' in pr_body
-        if claims_test and not has_test_diff:
-            return False, {'verdict': 'FAIL', 'reasons': ['テスト実施にチェックがありますがテスト差分がありません（Fallback検知）']}
-        return True, {'verdict': 'PASS', 'reasons': ['Fallback check passed']}
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
+    except (urllib.error.URLError, json.JSONDecodeError, KeyError, TimeoutError) as exc:
+        # 障害時は「合格」ではなく「未実施」として人に判断を戻す（fail-closed）
+        return {"verdict": NEEDS_HUMAN, "reasons": [f"AI監査API障害のため未実施: {exc}"]}
 
-if __name__ == '__main__':
-    pr_body = os.environ.get('PR_BODY', '')
-    git_diff = get_git_diff()
-    passed, detail = audit_consistency(pr_body, git_diff)
-    if not passed:
-        print(f'AI Gatekeeper Audit FAILED: {detail}')
+
+if __name__ == "__main__":
+    body = os.environ.get("PR_BODY", "")
+    changed = get_changed_files()
+
+    hard_errors = deterministic_check(body, changed)
+    advisory = llm_advisory(body, changed)
+    print(f"[AI助言] {advisory}")
+    if advisory.get("verdict") != "PASS":
+        # ワークフロー側でこの出力を読み、needs-human-review ラベルを付ける
+        print("::notice::AI監査で確認事項があります。needs-human-review ラベルを付与してください。")
+
+    if hard_errors:
+        for e in hard_errors:
+            print(f"❌ {e}")
         sys.exit(1)
-    print('AI Gatekeeper Audit PASSED')
-    sys.exit(0)
+    print("✅ 決定論的チェックを通過しました（AI助言は人のレビューで確認してください）。")
 ```
 
-※JSON Modeスキーマ検証とリトライ設計の補足：Gemini APIの `response_schema`（Structured Outputs）を指定することで、出力形式の揺れは大幅に抑えられる。ただし巨大なPR差分を送信した際には、出力の途中切れ（`finishReason: MAX_TOKENS`）による `json.JSONDecodeError` や一時的な通信瞬断が発生することがある。実運用では `git_diff` を先頭20,000文字にトランケートした上でタイムアウトを `15〜20秒` に設定する。さらにHTTP 429/503発生時には2秒・4秒の指数バックオフ（最大2回リトライ）を挟んでから上記の決定論的フォールバックへ移行する構成とすると、万全の可用性を担保できる。
+※JSON Modeスキーマ検証とリトライ設計の補足：Gemini APIの `response_schema`（Structured Outputs）を指定することで、出力形式の揺れは大幅に抑えられる。ただし巨大なPR差分を送信した際には、出力の途中切れ（`finishReason: MAX_TOKENS`）による `json.JSONDecodeError` や一時的な通信瞬断が発生することがある。実運用では `git_diff` を先頭20,000文字にトランケートした上でタイムアウトを `15〜20秒` に設定する。さらにHTTP 429/503発生時には2秒・4秒の指数バックオフ（最大2回リトライ）を挟み、それでも失敗した場合は「AI監査未実施」として人のレビューに回す。障害時に合格へ倒してはならない。
 
 ---
 
@@ -393,6 +401,17 @@ stateDiagram-v2
     負債自動起票 --> 事後追跡: テスト補完と通常検証完了
     事後追跡 --> [*]: クローズ確認
 ```
+
+### プロセスガードレールのQA合否判定基準（Pass/Fail Criteria）
+
+本章で扱ったガードレールの合否判定基準を整理する。数値はいずれも第2章「本書の閾値の扱い」に従う出発点の目安である。
+
+| 検査項目 | 合格（Pass） | 警告（Warn） | 不合格（Fail / ブロック） |
+| :--- | :--- | :--- | :--- |
+| コミットメッセージ | Conventional Commits準拠 | 該当なし | 規約違反（commitlint） |
+| PRサイズ | 400行以内 | 400行超〜800行以内 | 800行超 |
+| PR本文とDoDの整合 | 決定論的チェック違反0件 | AI助言で確認事項あり（人のレビューへ） | チェック済み項目と変更ファイルの機械的な食い違い |
+| Issue紐付け | `Closes #N` 等の記載あり | 該当なし | 記載なし |
 
 ---
 

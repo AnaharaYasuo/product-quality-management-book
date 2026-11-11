@@ -52,7 +52,7 @@ IaCの品質検証においては、以下の観点を網羅的に監査する�
 
 ### 3. Kubernetesマニフェスト（Helm等）の品質検証
 
-Kubernetesはクラスタ全体のリソース共有と自律回復を担うため、マニフェストの不備はノード枯渇やサービス停止を引き起こする。
+Kubernetesはクラスタ全体のリソース共有と自律回復を担うため、マニフェストの不備はノード枯渇やサービス停止を引き起こす。
 
 - **リソース制限（Requests / Limits）の明記**:
   CPUおよびメモリの要求値と上限値を必須とし、 noisy neighbor（近隣の迷惑なプロセス）によるクラスタ全体の障害を防止する。
@@ -343,58 +343,45 @@ CIパイプラインにおいて、`terraform show -json tfplan.binary` の出�
 import json
 import sys
 
-# 再作成（Forces Replacement）を絶対に許容しないクリティカルリソースの接頭辞
-CRITICAL_RESOURCE_TYPES = [
+# データを保持するリソース型（完全一致で判定する。前方一致にすると
+# aws_s3_bucket_policy のようなデータを持たない付随リソースまで止めてしまう）
+STATEFUL_RESOURCE_TYPES = {
     "aws_db_instance",
     "aws_rds_cluster",
     "aws_s3_bucket",
     "aws_dynamodb_table",
-    "aws_ebs_volume"
-]
+    "aws_ebs_volume",
+}
 
-def analyze_terraform_plan(plan_file_path: str):
-    with open(plan_file_path, encoding="utf-8") as f:
-        plan_data = json.load(f)
 
-    resource_changes = plan_data.get("resource_changes", [])
+def analyze_terraform_plan(plan_data: dict) -> list[dict]:
     violations = []
-
-    for change in resource_changes:
-        resource_type = change.get("type", "")
-        resource_name = change.get("name", "")
+    for change in plan_data.get("resource_changes", []):
+        if change.get("type") not in STATEFUL_RESOURCE_TYPES:
+            continue
         actions = change.get("change", {}).get("actions", [])
-
-        # actionsが ["delete", "create"] の場合は再作成（Forces Replacement）
-        if "delete" in actions and "create" in actions and any(
-            resource_type.startswith(crit) for crit in CRITICAL_RESOURCE_TYPES
-        ):
-            violations.append({
-                    "type": resource_type,
-                    "name": resource_name,
-                    "actions": actions
-                })
-
+        # 削除を含む計画（再作成 ["delete","create"] / ["create","delete"]、単純削除 ["delete"]）
+        if "delete" in actions:
+            violations.append({"address": change.get("address", ""), "actions": actions})
     return violations
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Terraform plan JSONファイルのパスを指定してください。")
         sys.exit(1)
 
-    plan_path = sys.argv[1]
-    detected_violations = analyze_terraform_plan(plan_path)
+    with open(sys.argv[1], encoding="utf-8") as f:
+        detected = analyze_terraform_plan(json.load(f))
 
-    if detected_violations:
-        print("=======================================================")
-        print("🛑 CIマージブロック: クリティカルリソースの破壊的再作成を検知しました！")
-        print("=======================================================")
-        for v in detected_violations:
-            print(f"- リソース: {v['type']}.{v['name']} (アクション: {v['actions']})")
-        print("\nデータ消失を防ぐため、lifecycle { prevent_destroy = true } またはインポート対応を行ってください。")
+    if detected:
+        print("🛑 CIマージブロック: データを保持するリソースの削除・再作成を検知しました。")
+        for v in detected:
+            print(f"- {v['address']} (アクション: {v['actions']})")
+        print("\nデータ消失を防ぐため、lifecycle { prevent_destroy = true } の付与、moved ブロック、またはインポート対応を検討してください。")
         sys.exit(1)
 
-    print("✅ 破壊的変更の検査を通過しました（安全な変更計画です）。")
-    sys.exit(0)
+    print("✅ 破壊的変更の検査を通過しました。")
 ```
 
 ※実装上の注意点：`terraform show -json` の出力スキーマ（`format_version`）は将来のバージョンアップで変更される可能性があるため、CI内では `plan_data.get("format_version")` の確認を推奨する。また、ネストされたサードパーティモジュール（`module.vpc.aws_db_instance.main` 等）配下のリソースであっても、`resource_changes` 配列にはフラットに展開されて格納される。各要素の `address` フィールドにはモジュール階層を含むフルパスが入り、`change.before` / `change.after`（または `root_module.child_modules[].resources[].values`）に変更前後の属性値が記録される。

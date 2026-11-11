@@ -86,50 +86,87 @@ flowchart TD
     E --> F["人間レビュアーが見落としてマージ -> 重大障害"]
 ```
 
-### テスト改ざんを物理的に遮断するCIガードレール
+### テスト改ざんを検出するCIガードレール
 
-このハックを根絶するため、エージェントが提出したPRの差分をCIで解析し、「テストコード（`tests/` 配下）の変更」を機械的に検証・遮断するパイプラインを構築する。
+このハックを防ぐため、エージェントが提出したPRの差分をCIで解析し、テストを弱める変更を機械的に検出する。検査対象を「`tests/` 配下のファイルの変更と削除」だけにすると、リネーム、新規ファイルでの `skip`、`conftest.py` の書き換え、`pyproject.toml` の `addopts`（`--deselect` など）といった迂回路が残る。以下の実装は、これらの迂回路もまとめて検査する。
 
 ```python
 # tools/verify_agent_test_integrity.py
+import os
+import re
 import subprocess
 import sys
 
-def check_test_tampering():
-    # mainブランチとの差分ファイル一覧を取得（浅いクローン時はHEAD~1へフォールバック）
-    cmd = ["git", "diff", "--name-status", "origin/main...HEAD"]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        result = subprocess.run(["git", "diff", "--name-status", "HEAD~1...HEAD"], capture_output=True, text=True, check=False)
+TEST_DIR = "tests/"
+# テストの収集・実行条件を変えられる設定ファイル（ここを書き換えればテストを丸ごと外せる）
+TEST_CONFIG_FILES = ("conftest.py", "pyproject.toml", "pytest.ini", "setup.cfg", "tox.ini")
+# 追加行に現れたら弱体化とみなすパターン
+WEAKENING_PATTERNS = [
+    r"@pytest\.mark\.(skip|skipif|xfail)",
+    r"pytest\.skip\(",
+    r"unittest\.skip",
+    r"--deselect",
+    r"--ignore",
+    r"\baddopts\b",
+    r"\bcollect_ignore",
+]
 
-    modified_tests = []
-    deleted_tests = []
 
-    for line in result.stdout.splitlines():
-        if not line.strip():
+def git(*args: str) -> str:
+    for base in ("origin/main...HEAD", "HEAD~1...HEAD"):  # 浅いクローン時は HEAD~1 にフォールバック
+        res = subprocess.run(
+            ["git", *args, base], capture_output=True, text=True, encoding="utf-8", errors="replace", check=False
+        )
+        if res.returncode == 0:
+            return res.stdout or ""
+    return ""
+
+
+def classify(name_status: str, added_lines: dict[str, list[str]]) -> list[str]:
+    """差分を判定し、違反の説明リストを返す（空なら合格）。"""
+    violations = []
+    for line in name_status.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2:
             continue
-        status, file_path = line.split(maxsplit=1)
-        if file_path.startswith("tests/"):
-            if status.startswith("M"):
-                modified_tests.append(file_path)
-            elif status.startswith("D"):
-                deleted_tests.append(file_path)
+        status, paths = parts[0], parts[1:]
+        touches_tests = any(p.startswith(TEST_DIR) for p in paths)
+        touches_config = any(p.endswith(TEST_CONFIG_FILES) for p in paths)
+        if touches_tests and status[0] in "MDR":  # 変更・削除・リネーム
+            violations.append(f"既存テストの変更/削除/リネーム（{status}）: {' -> '.join(paths)}")
+        if touches_config:
+            violations.append(f"テスト収集設定の変更（{status}）: {paths[-1]}")
 
-    if deleted_tests:
-        print(f"❌ エージェント不正検知: テストファイルが削除されています: {deleted_tests}")
-        sys.exit(1)
+    for path, lines in added_lines.items():
+        for added in lines:
+            if any(re.search(p, added) for p in WEAKENING_PATTERNS):
+                violations.append(f"テストを外す記述の追加: {path}: {added.strip()}")
+    return violations
 
-    if modified_tests:
-        # 既存テストの改変がある場合、アサーション弱体化がないか厳格検査（または禁止）
-        print(f"⚠️ 警告: 既存テストファイルに変更があります: {modified_tests}")
-        # プロダクション規律: 新規テスト追加（A）のみ許可し、既存テスト変更（M）はブロック
-        print("❌ エージェントによる既存テスト改変は禁止されています。")
-        sys.exit(1)
 
-    print("✅ テスト完全性検証パス: テストの不正改ざんは検出されませんでした。")
+def collect_added_lines() -> dict[str, list[str]]:
+    added: dict[str, list[str]] = {}
+    current = None
+    for line in git("diff", "-U0").splitlines():
+        if line.startswith("+++ b/"):
+            current = line[6:]
+        elif line.startswith("+") and not line.startswith("+++") and current:
+            added.setdefault(current, []).append(line[1:])
+    return added
+
 
 if __name__ == "__main__":
-    check_test_tampering()
+    if os.environ.get("ALLOW_TEST_MODIFICATION") == "true":
+        # 人間が allow-test-modification ラベルを付けたPRのみ（ワークフロー側で環境変数に変換）
+        print("ℹ️ 人間の承認ラベルにより、既存テストの変更を許可します。")
+        sys.exit(0)
+    found = classify(git("diff", "--name-status", "-M"), collect_added_lines())
+    if found:
+        print("❌ テストの改ざん・弱体化の疑いがあります:")
+        for v in found:
+            print(f"  - {v}")
+        sys.exit(1)
+    print("✅ テストの改ざん・弱体化は検出されませんでした。")
 ```
 
 ### 仕様変更に伴う「正当な既存テスト修正」の例外エスカレーションプロトコル
@@ -203,47 +240,59 @@ sequenceDiagram
 
 ```python
 # tools/agent_adversarial_reviewer.py
-import os
 import json
+import os
+import sys
+import urllib.error
 import urllib.request
+
+NEEDS_HUMAN = "NEEDS_HUMAN_REVIEW"
+
 
 def audit_agent_pr(task_spec: str, git_diff: str) -> dict:
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        return {"verdict": "APPROVE", "reasons": ["API Key not set (Fallback Pass)"]}
+        # 監査できないときに合格扱いにしない（fail-closed）。判断を人に戻す。
+        return {"verdict": NEEDS_HUMAN, "reasons": ["APIキー未設定のため監査未実施"]}
 
     prompt = (
-        "あなたは極めて猜疑心の強い敵対的ソフトウェア監査官（Auditor Agent）です。\n"
-        "別のAIエージェントが作成したPR差分を精査し、以下の『不正パターン』が1点でもないかを厳格に糾弾してください。\n\n"
-        "【重点摘発項目】\n"
-        "1. 仕様書の制約（Invariants）を破っていないか（不要なライブラリ追加、無関係なリファクタリングなど）\n"
-        "2. テストの合否基準を誤魔化していないか（例外をもみ消す try-except、アサーションの削除）\n"
-        "3. エッジケースの処理を省略してハッピーパスだけで誤魔化していないか\n\n"
+        "あなたは別のAIエージェントが作成したPR差分を監査するレビュアーです。\n"
+        "次の観点ごとに、該当する差分行を引用して指摘してください。該当が無い観点は「該当なし」と書いてください。\n"
+        "1. タスク仕様の制約（Invariants）違反：不要なライブラリ追加、無関係なリファクタリング\n"
+        "2. テストの合否基準のごまかし：例外を握りつぶす try-except、アサーションの削除\n"
+        "3. エッジケースの省略：正常系だけを実装している\n\n"
         f"【タスク仕様】:\n{task_spec}\n\n【Git差分】:\n{git_diff}\n\n"
         '回答はJSON形式で {"verdict": "APPROVE" | "REJECT", "reasons": ["理由1"]} としてください。'
     )
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"response_mime_type": "application/json"}
+        "generationConfig": {"response_mime_type": "application/json"},
     }
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
     req = urllib.request.Request(
-        url,
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        res = json.loads(resp.read().decode("utf-8"))
-        return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
+    except (urllib.error.URLError, KeyError, json.JSONDecodeError, TimeoutError) as exc:
+        return {"verdict": NEEDS_HUMAN, "reasons": [f"監査API障害のため監査未実施: {exc}"]}
 
 
 if __name__ == "__main__":
-    verdict = audit_agent_pr(
+    result = audit_agent_pr(
         task_spec="TASK-402: ユーザー検索APIのクエリ最適化（既存テストの改変禁止）",
         git_diff="M src/services/user_service.py",
     )
-    print(f"Auditor Agent Verdict: {verdict}")
+    print(f"Auditor Agent Verdict: {result}")
+    # APPROVE 以外は人のレビューを要求する。LLMの判定だけでマージ可否を決めない（ソフトブロック）。
+    sys.exit(0 if result.get("verdict") == "APPROVE" else 1)
 ```
+
+このスクリプトの終了コードは、**必須ではないステータスチェック**として扱い、`APPROVE` 以外のときは `needs-human-review` ラベルを付けて人の承認を待つ。第8章・第24章の方針どおり、マージを機械的に止める（ハードブロック）のは決定論的ツールだけとし、LLMの判定は人へのエスカレーションに使う。また、APIキーが無いときやAPI障害のときに `APPROVE` を返してはならない。監査ゲートが障害時に素通しになるからである。
 
 なお、マルチエージェント監査を実運用する際は、LLMのAPIコストとレイテンシを抑える工夫が欠かせない。具体的には、決定論的CI（コンパイル・単体テスト・Linter・`verify_agent_test_integrity.py`）がすべてGreenになった後にのみ、非同期ジョブとしてAuditor Agentを起動する（Short-Circuit Evaluation）構成とする。
 
@@ -259,10 +308,10 @@ AIエージェントが提出したプルリクエストに対する客観的合
 
 | 検査領域 | 合格基準（Pass） | 警告水準（Warn） | 不合格（Fail / 即時リジェクト） |
 | :--- | :--- | :--- | :--- |
-| **テスト改ざん検査** | 既存テスト変更 0件、削除 0件 | 該当なし | 既存テストの修正または削除を検知。 |
+| **テスト改ざん検査** | 既存テストの変更・削除・リネーム 0件、skip追加 0件、収集設定変更 0件 | 該当なし | いずれか1件でも検知（承認ラベル付きPRを除く）。 |
 | **仕様・制約適合性** | タスク仕様のInvariants違反 0件 | 該当なし | 禁止パスの変更、未承認ライブラリの追加。 |
 | **サンドボックス逸脱** | ネットワーク遮断違反 0件 | 該当なし | 外部未知ホストへのアウトバウンド試行。 |
-| **対抗エージェント監査** | 全監査エージェントがApprove | 軽微な可読性指摘あり | セキュリティまたは論理欠陥の指摘（Reject）。 |
+| **対抗エージェント監査** | 全監査エージェントがApprove | Reject または監査未実施（人のレビューへエスカレーション） | 人のレビューで欠陥が確認された場合。 |
 
 ---
 
@@ -283,7 +332,7 @@ AIエージェントが提出したプルリクエストに対する客観的合
 
 1. **テスト防御スクリプトの配置**: `tools/verify_agent_test_integrity.py` をリポジトリにコミットする。
 2. **疑似攻撃ブランチの作成**: 新規ブランチを切り、既存の単体テストの `assert` 行を削除またはコメントアウトしてプッシュする。
-3. **PRとCIの自動遮断確認**: GitHub Actions上でCIが走り、スクリプトが「エージェントによる既存テスト改変は禁止されています」とエラーを出力してマージが物理的に遮断されることを確認する。
+3. **PRとCIの自動遮断確認**: GitHub Actions上でCIが走り、スクリプトが「エージェントによる既存テスト改変は禁止されています」とエラーを出力してマージがブロックされることを確認する。あわせて、テストファイルのリネームや `@pytest.mark.skip` の追加でも検知されることを確かめる。
 
 ---
 

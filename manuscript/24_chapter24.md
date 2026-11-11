@@ -153,38 +153,61 @@ flowchart LR
 AIエージェントが高度化すればするほど、コードを書く構文知識の価値は相対的に低下する。代わりに決定的な価値を持つのが、「システムの数学的不変条件を見抜き、破綻を物理的に防ぐアンカーを設計するアーキテクチャ設計力」である。どの境界に型を置き、どのストレージに不変ログを残し、どの閾値で自動ロールバックさせるか――この全体設計を描くことこそが、AI時代におけるエンジニアの真の専門性である。
 
 > **[コラム] 反論への先回り：「厳格なアンカーを入れるとAIのスピードや開発者のモラールが落ちるのではないか？」**
-> 現場に決定論的アンカー（`mypy --strict` や変異テスト）を導入しようとすると、「せっかくAIで爆速でコードが書けるのに、厳しいチェックを入れたら速度が落ちるし、開発者が窮屈に感じてモラールが下がるのではないか」という懸念が必ず上がる。しかし、これは「ブレーキの役割」に対する根本的な誤解である。F1マシンが時速350kmでコーナーに突っ込めるのは、世界最高峰のカーボンセラミック・ブレーキ（絶対的な制動力）が搭載されているからに他ならない。もしブレーキが壊れていると知っていたら、ドライバーは怖くて時速30kmしか出せなくなる。ソフトウェア開発も全く同じである。「どんなに大胆にAIにリファクタリングさせても、もし不変条件を破ったら1秒でアンカーが止めてくれる」という絶対の安心感（心理的安全性）があるからこそ、開発者は恐怖心から解放され、AIのアクセルを床まで踏み抜くことができる。**厳格なガードレールは自由を奪う檻ではなく、創造性と圧倒的スピードを解き放つための滑走路なのである。**
+> 現場に決定論的アンカー（`mypy --strict` や変異テスト）を導入しようとすると、「せっかくAIで爆速でコードが書けるのに、厳しいチェックを入れたら速度が落ちるし、開発者が窮屈に感じてモラールが下がるのではないか」という懸念が必ず上がる。しかし、これは「ブレーキの役割」に対する根本的な誤解である。F1マシンが時速350kmでコーナーに突っ込めるのは、高性能なカーボンセラミック・ブレーキ（強力な制動力）が搭載されているからに他ならない。もしブレーキが壊れていると知っていたら、ドライバーは怖くて時速30kmしか出せなくなる。ソフトウェア開発も全く同じである。「どんなに大胆にAIにリファクタリングさせても、もし不変条件を破ったら1秒でアンカーが止めてくれる」という絶対の安心感（心理的安全性）があるからこそ、開発者は恐怖心から解放され、AIのアクセルを床まで踏み抜くことができる。**厳格なガードレールは自由を奪う檻ではなく、創造性と圧倒的スピードを解き放つための滑走路なのである。**
 
 ---
 
 ## 24.5 実践コード：決定論的アンカー強制パイプライン
 
-AIが生成したコードに対し、mypy、pytest、mutmut（変異テスト）を連続実行し、1つでもアンカーが外れたら即座にコミットを拒絶するスクリプト例である。
+AIが生成したコードに対し、mypy、pytest、mutmut（変異テスト）を連続実行し、1つでもアンカーが外れたら即座にコミットを拒絶するスクリプト例である。変異テストは `mutmut run` の終了コードではなく、集計した変異スコアを閾値と比べて判定する点に注意してほしい。`mutmut run` は生存変異体が1つでもあると非ゼロで終了するため、終了コードで判定すると「80%以上で合格」という基準と食い違う。
 
 ```python
 # tools/verify_deterministic_anchors.py
 import subprocess
 import sys
 
-def run_step(step_name, command):
+MUTATION_THRESHOLD = 0.80  # Tier 1 基準（第2章・第22章）
+
+
+def run_step(step_name: str, command: list[str]) -> None:
     print(f"=== [Anchor Check] {step_name} ===")
-    res = subprocess.run(command, shell=True, check=False)
+    res = subprocess.run(command, check=False)
     if res.returncode != 0:
         print(f"❌ 決定論的アンカー違反: {step_name} が失敗しました (Exit Code: {res.returncode})")
         sys.exit(1)
     print(f"✅ {step_name} 合格\n")
 
-def main():
-    # 1. 静的型アンカー (mypy)
-    run_step("静的型安全性 (mypy)", "mypy --strict src/")
 
-    # 2. 契約・機能テストアンカー (pytest with Testcontainers)
-    run_step("機能テスト & DB契約検証", "pytest tests/unit tests/integration")
+def count_mutants(status: str) -> int:
+    # mutmut 2.x: `mutmut result-ids <status>` は該当する変異体IDを空白区切りで出力する
+    res = subprocess.run(["mutmut", "result-ids", status], capture_output=True, text=True, check=False)
+    return len(res.stdout.split())
 
-    # 3. 欠陥検知力アンカー (Mutation Testing: mutmut 2.x系)
-    run_step("変異テスト殺害率検証 (mutmut)", "mutmut run --paths-to-mutate=src/core/")
 
-    print("🎉 全ての決定論的アンカーを通過しました。AIコードの安全性が物理的に確証されました。")
+def check_mutation_score(paths: str) -> None:
+    print("=== [Anchor Check] 変異テスト殺害率検証 (mutmut) ===")
+    # mutmut run は生存変異体が1つでもあると非ゼロで終了するため、終了コードでは判定しない
+    subprocess.run(["mutmut", "run", f"--paths-to-mutate={paths}"], check=False)
+    killed = count_mutants("killed") + count_mutants("timeout")
+    survived = count_mutants("survived") + count_mutants("suspicious")
+    total = killed + survived
+    if total == 0:
+        print("❌ 変異体が生成されませんでした（対象パスを確認してください）。")
+        sys.exit(1)
+    score = killed / total
+    print(f"変異スコア: {score:.1%}（殺害 {killed} / 対象 {total}、基準 {MUTATION_THRESHOLD:.0%}）")
+    if score < MUTATION_THRESHOLD:
+        print("❌ 決定論的アンカー違反: 変異スコアが基準を下回りました。")
+        sys.exit(1)
+    print("✅ 変異テスト合格\n")
+
+
+def main() -> None:
+    run_step("静的型安全性 (mypy)", ["mypy", "--strict", "src/"])
+    run_step("機能テスト & DB契約検証", ["pytest", "tests/unit", "tests/integration"])
+    check_mutation_score("src/core/")
+    print("🎉 全ての決定論的アンカーを通過しました。")
+
 
 if __name__ == "__main__":
     main()
