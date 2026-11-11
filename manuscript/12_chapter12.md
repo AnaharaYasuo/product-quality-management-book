@@ -172,7 +172,7 @@ jobs:
 
 ## 12.4 PRサイズ・鮮度のガードレール：Dangerによる巨大PRと負債の防止
 
-PRのサイズ（変更行数・ファイル数）と、コードレビューの品質および欠陥見落とし率には極めて強い正の相関がある。変更行数が500行を超えたPRのレビューは、実質的に「斜め読み」となり、重大なロジック欠陥やセキュリティホールが看過される原因となる。
+PRのサイズ（変更行数・ファイル数）と、コードレビューの品質および欠陥見落とし率には極めて強い正の相関がある。変更行数が400行を超えたPRのレビューは、実質的に「斜め読み」となり、重大なロジック欠陥やセキュリティホールが看過される原因となる。
 
 オープンソースの自動レビューツール `Danger`（JavaScript / Ruby）を活用することで、PRのメタ情報、差分量、付随成果物の過不足を動的に監視し、基準を超過した変更に対して即座に警告（Warn）またはマージ阻止（Fail）を発動できる。
 
@@ -185,11 +185,14 @@ const modifiedFiles = danger.git.modified_files;
 const createdFiles = danger.git.created_files;
 const allChangedFiles = [...modifiedFiles, ...createdFiles];
 
-// 1. 巨大PRの検出と警告
-const MAX_CHANGED_LINES = 500;
+// 1. 巨大PRの検出（本書共通閾値：400行超で警告、800行超でブロック）
+const WARN_CHANGED_LINES = 400;
+const FAIL_CHANGED_LINES = 800;
 const totalLinesChanged = danger.github.pr.additions + danger.github.pr.deletions;
-if (totalLinesChanged > MAX_CHANGED_LINES) {
-  warn(`⚠️ このPRの変更行数は ${totalLinesChanged} 行です。500行を超える巨大PRはレビュー品質の著しい低下を招きます。PRの分割を検討してください。`);
+if (totalLinesChanged > FAIL_CHANGED_LINES) {
+  fail(`🛑 このPRの変更行数は ${totalLinesChanged} 行です。800行を超えるPRは分割してください。`);
+} else if (totalLinesChanged > WARN_CHANGED_LINES) {
+  warn(`⚠️ このPRの変更行数は ${totalLinesChanged} 行です。400行を超えるとレビュー品質が低下しやすいため、分割を検討してください。`);
 }
 
 // 2. 実装コード変更時のテストコード同根チェック
@@ -401,7 +404,7 @@ stateDiagram-v2
 | :--- | :--- | :--- |
 | **ルールの伝達** | 膨大な社内Wikiに「開発規約」を記述し、新人に通読を義務付ける。 | Git Hooks（pre-commit）やRulesetで物理的にルール違反を遮断する。 |
 | **レビューの役割** | レビュアーが「インデント」「コミットメッセージ」「PR記述」の指摘に忙殺される。 | 形式的ルールはすべてLintやCIが落とす。人間は設計・ビジネス価値のみを議論する。 |
-| **PRの粒度** | 2週間分の作業が詰め込まれた3,000行のPRが提出され、誰も読まずにApproveする。 | DangerやBotが500行以上のPRに警告を発し、分割を強制する。 |
+| **PRの粒度** | 2週間分の作業が詰め込まれた3,000行のPRが提出され、誰も読まずにApproveする。 | DangerやBotが400行超のPRに警告を発し、800行超のPRはマージをブロックする。 |
 | **DoDの遵守** | PRのチェックボックスが単なる「通過儀礼」となり、ノーチェックで送信される。 | AI GatekeeperがGit差分と照合し、虚偽や未達のチェックを自動検知してリジェクトする。 |
 | **緊急対応** | 管理者がGitHubの設定画面で一時的にBranch Protectionを解除し、戻し忘れる。 | 監査ログ付きのHotfix自動ワークフローを設計し、事後チケットを自動生成して追跡する。 |
 
