@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 """
 tools/build_pdf.py
-全27原稿ファイル（manuscript/*.md）から印刷・閲覧用のA4版PDFおよびプレビューHTMLを生成し、
-生成されたDOMおよびPDFに対して以下の決定論的E2Eスモークテストを実施する：
+全27原稿ファイル（manuscript/*.md）から印刷・閲覧用のA4版PDF、プレビューHTML、
+Amazon KDP推奨仕様（1600x2560px 縦長 1:1.6）の表紙PNG、およびEPUB埋め込み用の全Mermaid図解PNGを生成し、
+以下の決定論的E2Eスモークテストを実施する：
 1. Markdown変換時にMermaidブロックおよびフェンス付きコードブロックを退避し、
-   コード例内部の `#` や `##` がH1/H2見出しや目次に誤変換されることを完全に防止する。
+   コード例内部の `#` や `##` がH1/H2見出しや目次に誤変換されることを防止する。
 2. 康熙部首（U+2F00..U+2FDF）およびCJK互換漢字を標準統合漢字へ正規化し、標準フォントを優先指定する。
-3. Playwright（Headless Chromium）上でMermaid v10による全図解のSVGレンダリングを実行。
+3. Playwright（Headless Chromium）上でMermaid v10による全図解のSVGレンダリングおよびEPUB用高解像度PNG出力を実行。
 4. DOM上の全 `.mermaid-container` を検査し、`Syntax error in text` や未描画SVG、または横幅過大（viewBox width > 2200px）の図解があればビルド失敗（Exit Code 1）とする。
 5. `<pre><code>` 内部に `<h1` や `<h2` タグが混入していないこと、および未変換の `$$` 数式や康熙部首が0件であることをE2E検証する。
 """
 
 import argparse
 import asyncio
+import base64
 import html
 import re
+import struct
 import sys
 import unicodedata
 from pathlib import Path
@@ -26,6 +29,28 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+
+
+OWL_SVG = """<svg width="240" height="240" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" aria-label="Owl woodcut style illustration">
+  <g fill="none" stroke="#1f2937" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20 165 Q100 155 180 168" stroke-width="3"/>
+    <path d="M45 162 L32 174 M150 164 L165 175" stroke-width="1.5"/>
+    <ellipse cx="100" cy="112" rx="38" ry="48" fill="#ffffff"/>
+    <path d="M64 95 Q52 125 72 152" stroke-width="2.2"/>
+    <path d="M136 95 Q148 125 128 152" stroke-width="2.2"/>
+    <path d="M78 105 Q100 112 122 105 M74 118 Q100 126 126 118 M76 131 Q100 139 124 131 M82 143 Q100 149 118 143" stroke-width="1.2"/>
+    <path d="M66 64 L54 44 L78 56 Q100 50 122 56 L146 44 L134 64" fill="#ffffff"/>
+    <circle cx="84" cy="74" r="14" fill="#ffffff"/>
+    <circle cx="116" cy="74" r="14" fill="#ffffff"/>
+    <circle cx="84" cy="74" r="5" fill="#1f2937"/>
+    <circle cx="116" cy="74" r="5" fill="#1f2937"/>
+    <circle cx="82" cy="72" r="1.5" fill="#ffffff" stroke="none"/>
+    <circle cx="114" cy="72" r="1.5" fill="#ffffff" stroke="none"/>
+    <polygon points="100,79 95,88 100,93 105,88" fill="#1f2937"/>
+    <path d="M84 158 L80 165 M88 158 L88 166 M92 158 L95 165" stroke-width="2"/>
+    <path d="M108 158 L105 165 M112 158 L112 166 M116 158 L120 165" stroke-width="2"/>
+  </g>
+</svg>"""
 
 
 def normalize_kangxi_and_compat_cjk(text: str) -> str:
@@ -56,7 +81,6 @@ _SUSPECT_RANGES = ((0x2E80, 0x2FDF), (0xF900, 0xFAFF), (0xFB00, 0xFB06))
 
 
 # CJK部首補助（U+2E80..U+2EFF）の多くはNFKCで統合漢字に戻らないため、明示的に対応付ける
-# （Unicode の EquivalentUnifiedIdeograph.txt に基づく、日本語で使う字の抜粋）
 _RADICAL_SUPPLEMENT = {
     0x2E9F: "母", 0x2EA0: "民", 0x2EC4: "西", 0x2ECC: "辶", 0x2ED1: "長", 0x2ED8: "青",
     0x2EDD: "食", 0x2EE9: "黄", 0x2EEB: "斉", 0x2EED: "歯", 0x2EEF: "竜", 0x2EF2: "亀",
@@ -65,8 +89,10 @@ _RADICAL_SUPPLEMENT = {
 
 def _map_text_layer_char(ch: str) -> str:
     cp = ord(ch)
-    if cp == 0x2027:  # HYPHENATION POINT → 中黒（同じ字形のため誤って写像される）
+    if cp == 0x2027:  # HYPHENATION POINT → 中黒
         return "\u30FB"
+    if cp == 0x0336:  # COMBINING LONG STROKE OVERLAY（欧文フォントのEMダッシュ写像ずれ）→ EMダッシュ
+        return "\u2014"
     if cp in _RADICAL_SUPPLEMENT:
         return _RADICAL_SUPPLEMENT[cp]
     if any(lo <= cp <= hi for lo, hi in _SUSPECT_RANGES):
@@ -138,12 +164,7 @@ def _fix_tounicode_cmap(data: str) -> tuple[str, bool]:
 
 
 def fix_pdf_text_layer(pdf_path: Path) -> int:
-    """PDFのテキスト層を修正する。
-
-    Chromium が Noto Sans CJK などで PDF を生成すると、ToUnicode CMap が統合漢字ではなく、
-    同じ字形を持つ康熙部首（例: U+2F6C「⽬」）や U+2027 を指すことがある。見た目は同じだが、
-    検索・コピー・読み上げが壊れる。写像先を統合漢字や中黒へ書き換え、修正したCMapの数を返す。
-    """
+    """PDFのテキスト層を修正する。"""
     import pikepdf
 
     fixed = 0
@@ -169,27 +190,37 @@ def verify_pdf_text_layer(pdf_path: Path) -> None:
     """生成後のPDFからテキストを抽出し、検索を壊す文字が残っていないことを確かめる。"""
     from pypdf import PdfReader
 
-    text = "".join((p.extract_text() or "") for p in PdfReader(str(pdf_path)).pages)
-    bad = [c for c in text if c == "\u2027" or any(lo <= ord(c) <= hi for lo, hi in _SUSPECT_RANGES[:2])]
+    reader = PdfReader(str(pdf_path))
+    text = "".join((p.extract_text() or "") for p in reader.pages)
+    bad = [c for c in text if c in ("\u2027", "\u0336") or any(lo <= ord(c) <= hi for lo, hi in _SUSPECT_RANGES[:2])]
     if bad:
         sample = "".join(sorted(set(bad))[:20])
-        raise RuntimeError(f"Smoke test failed: PDF text layer has {len(bad)} Kangxi/compat/U+2027 char(s): {sample}")
-    for word in ("目次", "二大成果物", "決定論的アンカー"):
+        raise RuntimeError(f"Smoke test failed: PDF text layer has {len(bad)} Kangxi/compat/U+2027/U+0336 char(s): {sample}")
+    for word in ("目次", "二大成果物", "決定論的アンカー", "奥付"):
         if word not in text:
             raise RuntimeError(f"Smoke test failed: '{word}' is not searchable in the PDF text layer")
     leaked_math = re.findall(r"\$[^\s$][^$\n]{0,40}\$", text)
     if leaked_math:
         print(f"  [WARN] '$...$' patterns in PDF text (check if unrendered math): {leaked_math[:5]}")
-    print("[Smoke Test] PDF text layer: no Kangxi/compat/U+2027 characters; key terms are searchable")
+    print("[Smoke Test] PDF text layer: no Kangxi/compat/U+2027 characters; key terms & colophon are searchable")
 
 
-def build_combined_html(repo_dir: Path, html_out: Path) -> int:
+def read_png_dimensions(png_path: Path) -> tuple[int, int]:
+    """PNGファイルのIHDRチャンクから (width, height) を読み取る。"""
+    raw = png_path.read_bytes()
+    if len(raw) < 24 or raw[:8] != b"\x89PNG\r\n\x1a\n" or raw[12:16] != b"IHDR":
+        raise RuntimeError(f"Invalid PNG file: {png_path}")
+    w, h = struct.unpack(">II", raw[16:24])
+    return w, h
+
+
+def build_combined_html(repo_dir: Path, html_out: Path) -> list[str]:
     md_files = sorted((repo_dir / "manuscript").glob("*.md"))
     style_css = (repo_dir / "manuscript" / "style.css").read_text(encoding="utf-8")
 
     chapters_html = []
     toc_items = []
-    total_mermaid = 0
+    all_mermaid_blocks: list[str] = []
 
     mermaid_pattern = re.compile(r"```mermaid\s*\n(.*?)\n```", re.DOTALL)
 
@@ -200,9 +231,8 @@ def build_combined_html(repo_dir: Path, html_out: Path) -> int:
         mermaid_store = []
 
         def stash_mermaid(match):
-            nonlocal total_mermaid
-            total_mermaid += 1
             code = match.group(1)
+            all_mermaid_blocks.append(code)
             token = f"@@MERMAID_BLOCK_{len(mermaid_store)}@@"
             mermaid_store.append(code)
             return f"\n\n{token}\n\n"
@@ -210,7 +240,6 @@ def build_combined_html(repo_dir: Path, html_out: Path) -> int:
         md_without_mermaid = mermaid_pattern.sub(stash_mermaid, raw_md)
 
         # 1.5. すべてのフェンス付きコードブロック（```...``` / ````...````）を一時退避
-        #      （コード例内部の `#` や `##` がH1/H2見出しや目次に誤変換されるのを防ぐため）
         code_fence_store = []
         lines_stashed = []
         in_fence = False
@@ -329,6 +358,10 @@ def build_combined_html(repo_dir: Path, html_out: Path) -> int:
   margin: 20mm 18mm 20mm 18mm;
 }}
 
+@page :first {{
+  margin: 0;
+}}
+
 body {{
   font-family: "Noto Sans CJK JP", "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
   line-height: 1.75;
@@ -342,14 +375,15 @@ body {{
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 245mm;
+  width: 210mm;
+  height: 297mm;
   page-break-after: always;
   background: #ffffff;
-  border-top: 14mm solid #b91c1c;
-  border-bottom: 4mm solid #b91c1c;
-  padding: 10mm 16mm 12mm 16mm;
+  border-top: 16mm solid #b91c1c;
+  border-bottom: 6mm solid #b91c1c;
+  padding: 14mm 22mm 16mm 22mm;
   box-sizing: border-box;
-  font-family: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", Georgia, serif;
+  font-family: "Noto Sans CJK JP", "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
 }}
 
 .cover-page .cover-tagline {{
@@ -358,7 +392,7 @@ body {{
   color: #555555;
   letter-spacing: 0.04em;
   border-bottom: 0.5pt solid #cccccc;
-  padding-bottom: 4pt;
+  padding-bottom: 6pt;
   text-align: right;
 }}
 
@@ -372,8 +406,8 @@ body {{
 .cover-page .cover-band {{
   background: #b91c1c;
   color: #ffffff;
-  padding: 14pt 16pt;
-  margin: 0 -16mm;
+  padding: 16pt 22mm;
+  margin: 0 -22mm;
   text-align: left;
 }}
 
@@ -390,7 +424,6 @@ body {{
 .cover-page .book-subtitle {{
   font-size: 12pt;
   color: #fde8e8;
-  font-family: "Noto Sans JP", "Yu Gothic", sans-serif;
   margin: 0;
   line-height: 1.4;
 }}
@@ -399,7 +432,6 @@ body {{
   font-size: 10pt;
   color: #333333;
   text-align: right;
-  font-family: "Noto Sans JP", "Yu Gothic", sans-serif;
   line-height: 1.6;
   margin-top: 10mm;
 }}
@@ -412,6 +444,7 @@ body {{
 }}
 
 .toc-page {{
+  page-break-before: always;
   page-break-after: always;
 }}
 
@@ -587,34 +620,7 @@ th {{
   <div class="cover-page">
     <div class="cover-tagline">Practical Guide to Product Quality Management — Deterministic Anchors &amp; AI Assurance</div>
     <div class="cover-illustration">
-      <svg width="210" height="210" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" aria-label="Owl woodcut style illustration">
-        <g fill="none" stroke="#1f2937" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <!-- Branch -->
-          <path d="M20 165 Q100 155 180 168" stroke-width="3"/>
-          <path d="M45 162 L32 174 M150 164 L165 175" stroke-width="1.5"/>
-          <!-- Owl body -->
-          <ellipse cx="100" cy="112" rx="38" ry="48" fill="#ffffff"/>
-          <!-- Wings -->
-          <path d="M64 95 Q52 125 72 152" stroke-width="2.2"/>
-          <path d="M136 95 Q148 125 128 152" stroke-width="2.2"/>
-          <!-- Feather hatching -->
-          <path d="M78 105 Q100 112 122 105 M74 118 Q100 126 126 118 M76 131 Q100 139 124 131 M82 143 Q100 149 118 143" stroke-width="1.2"/>
-          <!-- Head & Ear tufts -->
-          <path d="M66 64 L54 44 L78 56 Q100 50 122 56 L146 44 L134 64" fill="#ffffff"/>
-          <!-- Facial disc -->
-          <circle cx="84" cy="74" r="14" fill="#ffffff"/>
-          <circle cx="116" cy="74" r="14" fill="#ffffff"/>
-          <circle cx="84" cy="74" r="5" fill="#1f2937"/>
-          <circle cx="116" cy="74" r="5" fill="#1f2937"/>
-          <circle cx="82" cy="72" r="1.5" fill="#ffffff" stroke="none"/>
-          <circle cx="114" cy="72" r="1.5" fill="#ffffff" stroke="none"/>
-          <!-- Beak -->
-          <polygon points="100,79 95,88 100,93 105,88" fill="#1f2937"/>
-          <!-- Talons -->
-          <path d="M84 158 L80 165 M88 158 L88 166 M92 158 L95 165" stroke-width="2"/>
-          <path d="M108 158 L105 165 M112 158 L112 166 M116 158 L120 165" stroke-width="2"/>
-        </g>
-      </svg>
+      {OWL_SVG}
     </div>
     <div class="cover-band">
       <div class="book-title">プロダクト品質管理の実践ガイド</div>
@@ -634,13 +640,236 @@ th {{
 
     html_out.parent.mkdir(parents=True, exist_ok=True)
     html_out.write_text(full_html, encoding="utf-8")
-    return total_mermaid
+    return all_mermaid_blocks
 
 
-async def render_and_smoke_test_pdf(html_out: Path, pdf_out: Path, expected_mermaid_count: int, cover_out: Path | None = None):
+async def render_kdp_cover_png(browser, cover_out: Path) -> None:
+    """Amazon KDP推奨の縦長 1:1.6 解像度（1600 x 2560 px）の表紙PNGを独立ページで高速・決定論的に生成する。"""
+    cover_html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body {{
+    margin: 0;
+    padding: 0;
+    width: 800px;
+    height: 1280px;
+    overflow: hidden;
+    background: #ffffff;
+    font-family: "Noto Sans CJK JP", "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+  }}
+  .kdp-cover {{
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    width: 800px;
+    height: 1280px;
+    box-sizing: border-box;
+    border-top: 64px solid #b91c1c;
+    border-bottom: 24px solid #b91c1c;
+    padding: 44px 64px 56px 64px;
+    background: #ffffff;
+  }}
+  .tagline {{
+    font-size: 14px;
+    font-style: italic;
+    color: #555555;
+    letter-spacing: 0.02em;
+    border-bottom: 1.5px solid #cccccc;
+    padding-bottom: 12px;
+    text-align: right;
+    white-space: nowrap;
+  }}
+  .illustration {{
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 24px auto;
+  }}
+  .illustration svg {{
+    width: 390px;
+    height: 390px;
+  }}
+  .band {{
+    background: #b91c1c;
+    color: #ffffff;
+    padding: 38px 56px;
+    margin: 0 -64px;
+  }}
+  .title {{
+    font-size: 41px;
+    font-weight: bold;
+    line-height: 1.3;
+    margin: 0 0 14px 0;
+    color: #ffffff;
+    white-space: nowrap;
+  }}
+  .subtitle {{
+    font-size: 22px;
+    line-height: 1.45;
+    margin: 0;
+    color: #fde8e8;
+  }}
+  .author-box {{
+    text-align: right;
+    color: #333333;
+    line-height: 1.6;
+  }}
+  .author {{
+    font-size: 28px;
+    font-weight: bold;
+    color: #111111;
+    margin-bottom: 6px;
+  }}
+  .edition {{
+    font-size: 17px;
+    color: #555555;
+  }}
+</style>
+</head>
+<body>
+  <div class="kdp-cover">
+    <div class="tagline">Practical Guide to Product Quality Management — Deterministic Anchors &amp; AI Assurance</div>
+    <div class="illustration">{OWL_SVG}</div>
+    <div class="band">
+      <div class="title">プロダクト品質管理の実践ガイド</div>
+      <div class="subtitle">高品質なプロダクトを継続的に届けるための設計とプロセス</div>
+    </div>
+    <div class="author-box">
+      <div class="author">Anahara Yasuo 著</div>
+      <div class="edition">Assurance-Driven Development for AI-Native Teams</div>
+    </div>
+  </div>
+</body>
+</html>"""
+    ctx = await browser.new_context(viewport={"width": 800, "height": 1280}, device_scale_factor=2)
+    cpage = await ctx.new_page()
+    await cpage.set_content(cover_html, wait_until="load")
+    await cpage.evaluate("() => document.fonts ? document.fonts.ready : Promise.resolve()")
+    cover_out.parent.mkdir(parents=True, exist_ok=True)
+    await cpage.screenshot(path=str(cover_out), type="png", full_page=False)
+    await ctx.close()
+
+    w, h = read_png_dimensions(cover_out)
+    if (w, h) != (1600, 2560):
+        raise RuntimeError(f"Smoke test failed: expected KDP cover PNG 1600x2560, got {w}x{h}")
+    print(f"[Cover] Saved KDP portrait cover image at {cover_out} ({w}x{h}px, {cover_out.stat().st_size:,} bytes)")
+
+
+async def render_mermaid_pngs(browser, mermaid_blocks: list[str], out_dir: Path) -> None:
+    """EPUB埋め込み用に全Mermaid図解を高解像度PNG（2x DPI・白背景）として決定論的に出力する。"""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ctx = await browser.new_context(viewport={"width": 1400, "height": 3600}, device_scale_factor=2)
+    mpage = await ctx.new_page()
+    await mpage.set_content(
+        """<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+    font-family: "Noto Sans CJK JP", "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+  }
+  #stage {
+    display: inline-block;
+    background: #ffffff;
+    padding: 14px;
+    box-sizing: border-box;
+  }
+  #stage svg {
+    display: block;
+    height: auto;
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    securityLevel: 'loose',
+    flowchart: { htmlLabels: true, curve: 'basis' }
+  });
+</script>
+</head>
+<body><div id="stage"></div></body>
+</html>""",
+        wait_until="networkidle",
+        timeout=60000,
+    )
+    await mpage.evaluate("() => document.fonts ? document.fonts.ready : Promise.resolve()")
+    cdp = await ctx.new_cdp_session(mpage)
+
+    for idx, code in enumerate(mermaid_blocks, start=1):
+        rect = await mpage.evaluate(
+            """async ({id, code}) => {
+                const stage = document.getElementById('stage');
+                stage.innerHTML = '';
+                const { svg } = await mermaid.render('epub_mermaid_' + id, code);
+                stage.innerHTML = svg;
+                const svgEl = stage.querySelector('svg');
+                if (svgEl) {
+                    const vb = svgEl.getAttribute('viewBox');
+                    if (vb) {
+                        const parts = vb.trim().split(/[\\s,]+/);
+                        const vbW = parseFloat(parts[2]);
+                        if (!isNaN(vbW) && vbW > 0) {
+                            const targetW = Math.min(vbW, 1320);
+                            svgEl.style.width = targetW + 'px';
+                            svgEl.style.maxWidth = 'none';
+                            svgEl.removeAttribute('height');
+                        }
+                    }
+                }
+                const r = stage.getBoundingClientRect();
+                return {
+                    x: Math.max(0, Math.floor(r.x)),
+                    y: Math.max(0, Math.floor(r.y)),
+                    width: Math.max(1, Math.ceil(r.width)),
+                    height: Math.max(1, Math.ceil(r.height))
+                };
+            }""",
+            {"id": idx, "code": code},
+        )
+        out_file = out_dir / f"mermaid-{idx:03d}.png"
+        shot = await cdp.send(
+            "Page.captureScreenshot",
+            {
+                "format": "png",
+                "clip": {
+                    "x": rect["x"],
+                    "y": rect["y"],
+                    "width": rect["width"],
+                    "height": rect["height"],
+                    "scale": 2,
+                },
+            },
+        )
+        out_file.write_bytes(base64.b64decode(shot["data"]))
+        w, h = read_png_dimensions(out_file)
+        if w < 20 or h < 20:
+            await ctx.close()
+            raise RuntimeError(f"Smoke test failed: Mermaid PNG #{idx} has invalid dimensions {w}x{h}")
+
+    await ctx.close()
+    print(f"[EPUB Diagrams] Rendered {len(mermaid_blocks)} high-DPI Mermaid PNGs in {out_dir}")
+
+
+async def render_and_smoke_test_pdf(
+    html_out: Path,
+    pdf_out: Path,
+    mermaid_blocks: list[str],
+    cover_out: Path | None = None,
+    mermaid_img_dir: Path | None = None,
+):
     from playwright.async_api import async_playwright
 
-    # 静的HTML検証：コードブロック内の見出し誤変換・康熙部首・未変換LaTeX数式の検査
+    expected_mermaid_count = len(mermaid_blocks)
+
+    # 静的HTML検証：康熙部首・未変換LaTeX数式の検査
     html_text = html_out.read_text(encoding="utf-8")
     kangxi_hits = re.findall(r"[\u2E80-\u2FDF\uF900-\uFAFF]", html_text)
     if kangxi_hits:
@@ -656,6 +885,12 @@ async def render_and_smoke_test_pdf(html_out: Path, pdf_out: Path, expected_merm
                 executable_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
                 headless=True,
             )
+
+        if cover_out is not None:
+            await render_kdp_cover_png(browser, cover_out)
+
+        if mermaid_img_dir is not None:
+            await render_mermaid_pngs(browser, mermaid_blocks, mermaid_img_dir)
 
         page = await browser.new_page()
         await page.goto(html_out.as_uri(), wait_until="networkidle", timeout=90000)
@@ -734,15 +969,12 @@ async def render_and_smoke_test_pdf(html_out: Path, pdf_out: Path, expected_merm
             raise RuntimeError(f"Smoke test failed: {len(audit['leakedHeadings'])} code block(s) contain leaked <h1>/<h2> tags!")
 
         pdf_out.parent.mkdir(parents=True, exist_ok=True)
-        if cover_out is not None:
-            cover_out.parent.mkdir(parents=True, exist_ok=True)
-            await page.locator(".cover-page").screenshot(path=str(cover_out))
-            print(f"[Cover] Saved cover image at {cover_out}")
         await page.pdf(
             path=str(pdf_out),
             format="A4",
             print_background=True,
             display_header_footer=True,
+            prefer_css_page_size=True,
             header_template='<div style="font-size:8px; color:#888; width:100%; text-align:right; padding-right:18mm;">プロダクト品質管理の実践ガイド</div>',
             footer_template='<div style="font-size:9px; color:#666; width:100%; text-align:center;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>',
             margin={"top": "20mm", "bottom": "20mm", "left": "18mm", "right": "18mm"},
@@ -753,7 +985,7 @@ async def render_and_smoke_test_pdf(html_out: Path, pdf_out: Path, expected_merm
         if pdf_size < 500_000:
             raise RuntimeError(f"Smoke test failed: generated PDF is unexpectedly small ({pdf_size} bytes)")
 
-        # テキスト層の修正（康熙部首・U+2027 → 統合漢字・中黒）と検証
+        # テキスト層の修正（康熙部首・U+2027・U+0336 → 統合漢字・中黒・EMダッシュ）と検証
         fixed = fix_pdf_text_layer(pdf_out)
         print(f"[Text Layer] ToUnicode CMaps fixed: {fixed}")
         verify_pdf_text_layer(pdf_out)
@@ -761,20 +993,34 @@ async def render_and_smoke_test_pdf(html_out: Path, pdf_out: Path, expected_merm
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build & E2E-verify full book HTML and PDF")
+    parser = argparse.ArgumentParser(description="Build & E2E-verify full book HTML, PDF, KDP Cover PNG & Mermaid PNGs")
     parser.add_argument("--html-out", default="output/product-quality-management.html", help="Output HTML path")
     parser.add_argument("--pdf-out", default="output/product-quality-management.pdf", help="Output PDF path")
-    parser.add_argument("--cover-out", default="output/cover.png", help="Output cover PNG path")
+    parser.add_argument("--cover-out", default="output/cover.png", help="Output KDP cover PNG path (empty string to skip)")
+    parser.add_argument(
+        "--mermaid-img-dir",
+        default="output/mermaid_images",
+        help="Output directory for EPUB Mermaid PNG images (empty string to skip)",
+    )
     args = parser.parse_args()
 
     repo_dir = Path(__file__).resolve().parent.parent
     html_out = Path(args.html_out)
     pdf_out = Path(args.pdf_out)
     cover_out = Path(args.cover_out) if args.cover_out else None
+    mermaid_img_dir = Path(args.mermaid_img_dir) if args.mermaid_img_dir else None
 
-    print("=== Building Combined Book HTML & PDF with E2E Smoke Verification ===")
-    expected_mermaid = build_combined_html(repo_dir, html_out)
-    asyncio.run(render_and_smoke_test_pdf(html_out.resolve(), pdf_out.resolve(), expected_mermaid, cover_out.resolve() if cover_out else None))
+    print("=== Building Combined Book HTML, PDF, KDP Cover & Mermaid PNGs ===")
+    mermaid_blocks = build_combined_html(repo_dir, html_out)
+    asyncio.run(
+        render_and_smoke_test_pdf(
+            html_out.resolve(),
+            pdf_out.resolve(),
+            mermaid_blocks,
+            cover_out.resolve() if cover_out else None,
+            mermaid_img_dir.resolve() if mermaid_img_dir else None,
+        )
+    )
 
 
 if __name__ == "__main__":

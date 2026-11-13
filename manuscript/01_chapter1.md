@@ -130,13 +130,13 @@ CTOやVPoE、テックリードが開発組織に「確証（Assurance）」の�
 
 ```mermaid
 flowchart TD
-    subgraph Legacy_Testing ["従来の「テスト（Testing）"]
+    subgraph Legacy_Testing ["従来の「テスト（Testing）」"]
         T1["コードが完成した後に実行"] --> T2["事前に定義された入力を与える"]
         T2 --> T3["期待通りの出力が出るか（合否判定）"]
         T3 --> T4["受動的・点検的な確認"]
     end
 
-    subgraph Modern_Assurance ["現代の「確証（Assurance）"]
+    subgraph Modern_Assurance ["現代の「確証（Assurance）」"]
         A1["ライフサイクル全般（要求・設計・コード・プロセス）"] --> A2["リスクと非機能要件の包括的評価"]
         A2 --> A3["決定論的アンカー（型・静的解析・数学的テスト）による証明"]
         A3 --> A4["「システムが意図通り安全に機能する」客観的証拠（Evidence）の提示"]

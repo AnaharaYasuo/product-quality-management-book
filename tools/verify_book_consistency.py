@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """tools/verify_book_consistency.py
 
-第3次評価（#148）で見つかった「同じ誤りが戻りやすい欠陥」を決定論的に検査する。
+第3次評価（#148）およびリリース前レビュー（#151）で見つかった「同じ誤りが戻りやすい欠陥」を決定論的に検査する。
 
-1. Actions の SHA ピン留め：原稿中の `uses: owner/repo[/path]@<40桁SHA> # vX.Y.Z` について、
+1. Actions の SHA ピン留め：原稿および `.github/workflows/*.yml` 中の
+   `uses: owner/repo[/path]@<40桁SHA> # vX.Y.Z` について、
    SHA がそのタグの指すコミットと一致するかを `git ls-remote` で照合する（ネットワーク必須）。
    `--offline` を付けると照合を省き、形式（40桁SHA＋版コメント）だけを検査する。
 2. 閾値の整合性：第2章「本書の閾値の扱い」と食い違う既知の書き方が残っていないか。
@@ -16,9 +17,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-MANUSCRIPT = Path(__file__).resolve().parents[1] / "manuscript"
+ROOT = Path(__file__).resolve().parents[1]
+MANUSCRIPT = ROOT / "manuscript"
+WORKFLOWS = ROOT / ".github" / "workflows"
 USES = re.compile(r"uses:\s*([\w.-]+/[\w.-]+)(?:/[\w./-]+)?@([0-9a-f]{40})(?:\s*#\s*(v[\w.]+))?")
 TAG_ONLY = re.compile(r"uses:\s*[\w.-]+/[\w.-]+(?:/[\w./-]+)?@v\d")
+FENCE_RE = re.compile(r"^(`{3,}|~{3,})(.*)$")
 
 # 第2章の閾値表と矛盾する書き方（正規表現, 理由）
 FORBIDDEN = [
@@ -35,7 +39,7 @@ FORBIDDEN = [
 ]
 
 
-def iter_lines():
+def iter_manuscript_lines():
     for md in sorted(MANUSCRIPT.glob("*.md")):
         for i, line in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
             yield md.name, i, line
@@ -51,19 +55,50 @@ def remote_shas(repo: str, tag: str) -> set[str]:
     return {line.split("\t")[0] for line in res.stdout.splitlines() if line.strip()}
 
 
+def check_action_pin(label: str, line_no: int, line: str, offline: bool, cache: dict, errors: list[str]) -> None:
+    stripped = line.lstrip()
+    if stripped.startswith("#"):
+        return
+    is_code_line = stripped.startswith(("uses:", "- uses:"))
+    if is_code_line and TAG_ONLY.search(line):
+        errors.append(f"{label}:{line_no}: タグ指定の uses（SHA固定にする）: {line.strip()}")
+    m = USES.search(line)
+    if m:
+        repo, sha, tag = m.groups()
+        if not tag:
+            errors.append(f"{label}:{line_no}: SHAに版コメント（# vX.Y.Z）がない: {line.strip()}")
+        elif not offline:
+            key = (repo, tag)
+            if key not in cache:
+                try:
+                    cache[key] = remote_shas(repo, tag)
+                except (RuntimeError, subprocess.TimeoutExpired) as exc:
+                    errors.append(f"{label}:{line_no}: 照合できない（合格扱いにしない）: {exc}")
+                    cache[key] = set()
+                    return
+            if sha not in cache[key]:
+                errors.append(f"{label}:{line_no}: {repo}@{tag} のSHAと一致しない: {sha}")
+
+
 def main() -> int:
     offline = "--offline" in sys.argv
     errors: list[str] = []
     cache: dict[tuple[str, str], set[str]] = {}
 
-    in_code = {}
+    fence_state: dict[str, str] = {}
     section_has_llm: dict[tuple[str, str], bool] = {}
     section_has_notice: dict[tuple[str, str], bool] = {}
     current_section: dict[str, str] = {}
-    for name, i, line in iter_lines():
-        if line.startswith("```"):
-            in_code[name] = not in_code.get(name, False)
-        elif not in_code.get(name, False):
+    for name, i, line in iter_manuscript_lines():
+        fm = FENCE_RE.match(line.strip())
+        if fm:
+            marker, lang = fm.group(1), fm.group(2).strip()
+            active = fence_state.get(name, "")
+            if not active:
+                fence_state[name] = marker
+            elif len(marker) >= len(active) and marker[0] == active[0] and lang == "":
+                fence_state[name] = ""
+        elif not fence_state.get(name, ""):
             if line.startswith("## "):
                 current_section[name] = line
             prose = re.sub(r"`[^`]*`", "", line)
@@ -74,28 +109,14 @@ def main() -> int:
             section_has_llm[key] = True
         if "データ送信の注意" in line:
             section_has_notice[key] = True
-        is_code_line = line.lstrip().startswith(("uses:", "- uses:"))
-        if is_code_line and TAG_ONLY.search(line):
-            errors.append(f"{name}:{i}: タグ指定の uses（SHA固定にする）: {line.strip()}")
-        m = USES.search(line)
-        if m:
-            repo, sha, tag = m.groups()
-            if not tag:
-                errors.append(f"{name}:{i}: SHAに版コメント（# vX.Y.Z）がない: {line.strip()}")
-            elif not offline:
-                key = (repo, tag)
-                if key not in cache:
-                    try:
-                        cache[key] = remote_shas(repo, tag)
-                    except (RuntimeError, subprocess.TimeoutExpired) as exc:
-                        errors.append(f"{name}:{i}: 照合できない（合格扱いにしない）: {exc}")
-                        cache[key] = set()
-                        continue
-                if sha not in cache[key]:
-                    errors.append(f"{name}:{i}: {repo}@{tag} のSHAと一致しない: {sha}")
+        check_action_pin(name, i, line, offline, cache, errors)
         for pattern, reason in FORBIDDEN:
             if re.search(pattern, line):
                 errors.append(f"{name}:{i}: {reason}: {line.strip()[:80]}")
+
+    for wf in sorted(WORKFLOWS.glob("*.yml")):
+        for i, line in enumerate(wf.read_text(encoding="utf-8").splitlines(), 1):
+            check_action_pin(f".github/workflows/{wf.name}", i, line, offline, cache, errors)
 
     for (name, section), _ in section_has_llm.items():
         if not section_has_notice.get((name, section)):

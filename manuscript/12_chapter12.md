@@ -187,7 +187,7 @@ const allChangedFiles = [...modifiedFiles, ...createdFiles];
 // 1. 巨大PRの検出（本書共通閾値：400行超で警告、800行超でブロック）
 const WARN_CHANGED_LINES = 400;
 const FAIL_CHANGED_LINES = 800;
-const totalLinesChanged = danger.github.pr.additions + danger.github.pr.deletions;
+const totalLinesChanged = pr.additions + pr.deletions;
 if (totalLinesChanged > FAIL_CHANGED_LINES) {
   fail(`🛑 このPRの変更行数は ${totalLinesChanged} 行です。800行を超えるPRは分割してください。`);
 } else if (totalLinesChanged > WARN_CHANGED_LINES) {
