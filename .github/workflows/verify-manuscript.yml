@@ -31,7 +31,7 @@ jobs:
         run: |
           npm install -g markdownlint-cli textlint textlint-rule-preset-ja-technical-writing textlint-rule-prh
           python -m pip install --upgrade pip
-          pip install pyyaml playwright ruff pytest pydantic hypothesis
+          pip install pyyaml playwright ruff pytest pydantic hypothesis jsonschema
           playwright install chromium
 
       - name: Run Markdownlint
@@ -86,7 +86,7 @@ jobs:
 
       - name: Build EPUB with Pandoc
         run: |
-          pandoc -o test-build.epub manuscript/metadata.yaml $(ls manuscript/*.md | sort) --css=manuscript/style.css
+          pandoc -o test-build.epub manuscript/metadata.yaml $(ls manuscript/*.md | sort) --toc --toc-depth=2 --lua-filter=tools/pandoc/parts.lua --css=manuscript/style.css
 
       - name: Run EPUBCheck (W3C Validator)
         run: |

@@ -7,6 +7,8 @@ tools/run_all_gates.py
 2. 商業技術書DoD・章番号連番整合性監査 (tools/audit_book_dod.py)
 3. Mermaid全75図のAST構文パース＆SVG描画検証 (tools/validate_mermaid.py)
 4. 一次情報正解知識ベース(RAG)整合性・埋め込みPython実ツール静的解析(Ruff) (tools/audit_technical_facts.py)
+5. サンプルコードの主張テスト (tests/test_snippet_claims.py)
+6. ActionsのSHA実在・閾値・禁止表現・未変換数式の整合性検査 (tools/verify_book_consistency.py)
 """
 
 import subprocess
@@ -26,6 +28,7 @@ GATES = [
     ("Gate 3: Mermaid Diagram AST & Real-Browser SVG Validation", [sys.executable, "tools/validate_mermaid.py"]),
     ("Gate 4: Primary-Source Knowledge Base (RAG) & Ruff Embedded Code Audit", [sys.executable, "tools/audit_technical_facts.py"]),
     ("Gate 5: Snippet Claim Tests (samples behave as the text claims)", [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_snippet_claims.py"]),
+    ("Gate 6: Book Consistency (Action SHA pins, thresholds, banned phrases, inline math)", [sys.executable, "tools/verify_book_consistency.py"]),
 ]
 
 

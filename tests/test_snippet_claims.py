@@ -150,3 +150,128 @@ def test_validation_auditor_uses_book_threshold():
     assert auditor.min_adoption_threshold == pytest.approx(0.005)
     m = mod.FeatureUsageMetric("f", "f", 10000, 40, 30, 1.0, 0)  # 0.4%
     assert auditor.evaluate_features([m])["zombie_sunset_candidates"]
+
+
+# ---------------------------------------------------------------- 第3次評価（#148）で追加
+def test_tamper_detects_pytestmark_and_ci_changes(tamper):
+    added = {"tests/test_pay.py": ["pytestmark = pytest.mark.skip(reason='flaky')"]}
+    assert tamper.classify("A\ttests/test_pay.py", added)
+    assert tamper.classify("M\t.github/workflows/ci.yml", {".github/workflows/ci.yml": ["  PYTEST_ADDOPTS: -k 'not pay'"]})
+    assert tamper.classify("M\tsrc/billing/test_invoice.py", {}), "tests/ 以外のテストファイルも対象"
+
+
+def test_tamper_allow_label_permits_only_modification(tamper):
+    assert tamper.classify("M\ttests/test_pay.py", {}, allow_test_modification=True) == []
+    added = {"tests/test_pay.py": ["@pytest.mark.skip(reason='later')"]}
+    assert tamper.classify("M\ttests/test_pay.py", added, allow_test_modification=True), "承認ラベルでも skip は止める"
+    assert tamper.classify("D\ttests/test_pay.py", {}, allow_test_modification=True), "承認ラベルでも削除は止める"
+
+
+def test_tamper_ignores_non_test_files(tamper):
+    assert tamper.classify("M\tREADME.md", {"README.md": ["pip install --ignore-installed foo"]}) == []
+
+
+def test_tamper_is_fail_closed_without_base(tamper, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # git リポジトリではない（= 差分を取れない）
+    with pytest.raises(SystemExit) as exc:
+        tamper.git("diff", "--name-status", "-M")
+    assert exc.value.code == 2
+
+
+def test_gatekeeper_is_fail_closed_without_base(tmp_path, monkeypatch):
+    mod = load_snippet("12_chapter12.md", "# tools/ai_gatekeeper_check.py")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit):
+        mod.get_changed_files()
+    # 「テスト不要」のような別の項目や、latest.py のような名前を誤判定しない
+    assert mod.deterministic_check("- [x] テスト不要（ドキュメントのみ）", ["docs/a.md"]) == []
+    assert mod.deterministic_check("- [x] テストを追加した", ["src/latest.py"])
+
+
+def test_predictive_selection_is_fail_closed(tmp_path, monkeypatch):
+    mod = load_snippet("22_chapter22.md", "# tools/predictive_test_selection.py")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    assert mod.select_optimal_tests([]) == ["tests/unit"]
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit):
+        mod.get_changed_files()
+
+
+def test_sanitize_for_llm_masks_pii_and_secrets():
+    mod = load_snippet("15_chapter15.md", "# tools/generate_postmortem_ai.py")
+    out = mod.sanitize_for_llm("連絡先 taro@example.co.jp token: abcdEFGH12345678 from 10.1.2.3 tel 03-1234-5678")
+    assert "taro@example.co.jp" not in out and "abcdEFGH12345678" not in out
+    assert "10.1.2.3" not in out and "03-1234-5678" not in out
+
+
+def test_assured_testgen_rejects_hollow_candidate(tmp_path):
+    mod = load_snippet("09_chapter9.md", "# tools/assured_testgen.py")
+    hollow = tmp_path / "test_hollow.py"
+    hollow.write_text("def test_x():\n    calculate_discount(1000, 'VIP')\n", encoding="utf-8")
+    good = tmp_path / "test_good.py"
+    good.write_text("import pytest\nasync def test_y():\n    with pytest.raises(ValueError):\n        int('x')\n", encoding="utf-8")
+    assert mod.has_assertions(hollow) is False
+    assert mod.has_assertions(good) is True
+
+
+def test_hollow_detector_covers_async_tests(tmp_path):
+    mod = load_snippet("23_chapter23.md", "# tools/detect_fake_coverage.py")
+    f = tmp_path / "test_async.py"
+    f.write_text("async def test_hollow():\n    await something()\n", encoding="utf-8")
+    assert mod.audit_test_file(str(f)) == ["test_hollow"]
+
+
+def _yaml_block(chapter: str, header: str) -> str:
+    text = (MANUSCRIPT / chapter).read_text(encoding="utf-8")
+    m = re.search(r"```yaml\n(" + re.escape(header) + r"[\s\S]*?)\n```", text)
+    assert m, f"yaml not found: {chapter} {header}"
+    return m.group(1)
+
+
+def test_spectral_4xx_rule_requires_a_4xx_response():
+    yaml = pytest.importorskip("yaml")
+    jsonschema = pytest.importorskip("jsonschema")
+    rules = yaml.safe_load(_yaml_block("06_chapter6.md", "# .spectral.yaml"))["rules"]
+    schema = rules["operation-4xx-response"]["then"]["functionOptions"]["schema"]
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({"200": {"description": "ok"}}, schema)
+    jsonschema.validate({"200": {"description": "ok"}, "404": {"description": "nf"}}, schema)
+
+
+def test_canary_analysis_treats_empty_result_as_inconclusive():
+    yaml = pytest.importorskip("yaml")
+    tmpl = yaml.safe_load(_yaml_block("15_chapter15.md", "# kubernetes/analysis-template.yaml"))
+    metric = tmpl["spec"]["metrics"][0]
+    # 空の結果（len(result) == 0）では success も failure も偽になること（= inconclusive）
+    assert "len(result) == 0" not in metric["successCondition"]
+    assert metric["successCondition"].startswith("len(result) > 0")
+    assert metric["failureCondition"].startswith("len(result) > 0")
+
+
+def test_mutation_diff_gate_uses_glob_pathspec_and_score():
+    block = (MANUSCRIPT / "09_chapter9.md").read_text(encoding="utf-8")
+    m = re.search(r"# \.github/workflows/mutation-diff-gate\.yml[\s\S]*?\n```", block)
+    assert m
+    assert "':(glob)src/domain/**/*.py'" in m.group(0)
+    assert "set -euo pipefail" in m.group(0)
+    assert "check_mutation_score" in m.group(0)
+
+
+def test_ragas_gate_follows_table_thresholds(monkeypatch):
+    def make_ragas(score):
+        datasets = types.ModuleType("datasets")
+        datasets.Dataset = type("Dataset", (), {"from_dict": staticmethod(lambda d: d)})
+        ragas = types.ModuleType("ragas")
+        ragas.evaluate = lambda dataset, metrics: {"faithfulness": score, "answer_relevancy": 0.9, "context_precision": 0.9}
+        metrics = types.ModuleType("ragas.metrics")
+        metrics.faithfulness = metrics.answer_relevancy = metrics.context_precision = object()
+        return {"datasets": datasets, "ragas": ragas, "ragas.metrics": metrics}
+
+    fake = types.ModuleType("fake_rag")
+    fake.answer = lambda q: ("回答", ["文脈"])
+    monkeypatch.setitem(sys.modules, "fake_rag", fake)
+    monkeypatch.setenv("RAG_PIPELINE", "fake_rag:answer")
+    warn = load_snippet("18_chapter18.md", "# tests/evaluate_rag_pipeline.py", make_ragas(0.80))
+    assert warn.run_quality_gate() == 0, "0.75〜0.85 は警告（18.6）"
+    fail = load_snippet("18_chapter18.md", "# tests/evaluate_rag_pipeline.py", make_ragas(0.70))
+    assert fail.run_quality_gate() == 1, "0.75未満は不合格（18.6）"

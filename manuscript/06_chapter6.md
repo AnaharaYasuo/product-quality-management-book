@@ -125,7 +125,7 @@ ATAMセッションを通じて、ビジネス優先度に基づくトレード�
 1. **依存性逆転の原則（DIP: Dependency Inversion Principle）**:  
    上位モジュールが下位モジュール（DBや外部API）に直接依存してはならない。抽象（インターフェース）に依存させ、外部依存をモックやスタブに差し替え可能にする。
 2. **クリーンアーキテクチャ / ヘキサゴナルアーキテクチャ**:  
-   ビジネスロジック（Domain）をフレームワークやデータベースから完全に隔離する。単体テストをDB接続なしでミリ秒単位で実行できるように設計する。
+   ビジネスロジック（Domain）をフレームワークやデータベースから切り離す。単体テストをDB接続なしでミリ秒単位で実行できるように設計する。
 3. **副作用の局所化**:  
    現在時刻、乱数生成、UUID、外部通信といった「非決定的な処理」をコアロジックから排除し、境界（Adapter）に追いやる。
 
@@ -181,7 +181,7 @@ func (s *OrderService) PlaceOrder(ctx context.Context, userID int, amount int) e
 }
 ```
 
-このように設計することで、単体テスト実行時に本物のデータベースや実時刻を用意することなく、メモリ上のモックを用いて全エッジケース（DBタイムアウト、うるう秒等）を1ミリ秒で完全に自動検証できるようになる。この「コンストラクタ経由でのインターフェース注入（Constructor Injection）」はGo言語に限らずあらゆる言語で共通である。TypeScriptでは `interface` を `constructor(private repo: OrderRepository)` に渡し、Pythonでは `typing.Protocol` や `ABC` を `__init__` に渡すことで全く同じ構造を適用できる。
+このように設計することで、単体テスト実行時に本物のデータベースや実時刻を用意することなく、メモリ上のモックを用いてエッジケース（DBタイムアウト、うるう秒等）をミリ秒単位で自動検証できるようになる。この「コンストラクタ経由でのインターフェース注入（Constructor Injection）」はGo言語に限らずあらゆる言語で共通である。TypeScriptでは `interface` を `constructor(private repo: OrderRepository)` に渡し、Pythonでは `typing.Protocol` や `ABC` を `__init__` に渡すことで全く同じ構造を適用できる。
 
 ---
 
@@ -197,7 +197,7 @@ OpenAPIの定義ファイル（`openapi.yaml`）に対し、リントツール *
 
 ### スピード重視の現場における「1行ADR」と軽量スキーマ運用ハック
 
-「アジャイルでスピード重視の現場では、重厚なADRやスキーマファーストを書いている暇がない」という反発がよく聞かれる。そのような現場では、最初から完璧なドキュメントを書く必要はない。まずはPRの概要欄（または `docs/adr/LOG.md`）に **「【決定】○○を採用 / 【理由】××のため / 【捨てた選択肢】△△は運用コスト高のため却下」というMarkdown 1行（One-Line ADR）を書くだけ** で十分である。スキーマも最初から手書きせず、TypeScriptのZodやPythonのPydanticモデルからOpenAPIを自動生成してCIで差分比較する「コードファースト・スキーマロック」から始めることで、開発速度を1ミリも落とさずに後方互換性のガードレールを手に入れることができる。
+「アジャイルでスピード重視の現場では、重厚なADRやスキーマファーストを書いている暇がない」という反発がよく聞かれる。そのような現場では、最初から完璧なドキュメントを書く必要はない。まずはPRの概要欄（または `docs/adr/LOG.md`）に **「【決定】○○を採用 / 【理由】××のため / 【捨てた選択肢】△△は運用コスト高のため却下」というMarkdown 1行（One-Line ADR）を書くだけ** で十分である。スキーマも最初から手書きせず、TypeScriptのZodやPythonのPydanticモデルからOpenAPIを自動生成してCIで差分比較する「コードファースト・スキーマロック」から始めることで、開発速度をほとんど落とさずに後方互換性のガードレールを手に入れることができる。
 
 ```yaml
 # .spectral.yaml (API設計規約ルールセット)
@@ -214,26 +214,40 @@ rules:
       function: pattern
       functionOptions: { match: '^(/[a-z0-9-]+|/\{[a-zA-Z0-9_]+\})+$' }
   # [カスタムルール] 全オペレーションに4xx系クライアントエラー応答が定義されているか
+  # （minProperties だけでは 200 しか無い応答も通ってしまうため、4xx のキーを1つ以上必須にする）
   operation-4xx-response:
     description: 各エンドポイントには400/401等の4xxエラーレスポンスを定義すること
     severity: error
     given: $.paths[*][get,post,put,patch,delete].responses
     then:
       function: schema
-      functionOptions: { schema: { type: object, patternProperties: { "^4[0-9]{2}$": { type: object } }, minProperties: 1 } }
+      functionOptions:
+        schema:
+          type: object
+          anyOf:
+            - required: ["400"]
+            - required: ["401"]
+            - required: ["403"]
+            - required: ["404"]
+            - required: ["409"]
+            - required: ["422"]
+            - required: ["429"]
+            - required: ["4XX"]
 ```
 
 ---
 
 ## 6.5 AI確証実践：OpenAPI差分からの後方互換性破壊（Breaking Changes）検知とADRリスク監査
 
-AIを活用することで、人間が見落としやすい「微妙な破壊的変更」や「設計判断の矛盾」をGitのプルリクエスト時点で自動監査する。
+> **データ送信の注意**：この節のワークフローは、OpenAPIの差分とADRを外部のLLM APIへ送信する。実行前に、第2章「外部LLMへのデータ送信ポリシー」に沿って、送信してよいデータか、秘密情報をマスキングしたかを確認すること。
+
+破壊的変更の検知そのものは、スキーマ差分ツール（`oasdiff` や `buf breaking`）で決定論的に行う。AIには、ツールが拾えない「意味の変化」（フィールドの意味が変わった、ADRの決定と実装が食い違う、など）の指摘を任せ、結果は人のレビューへの助言として扱う（第2章「LLMの判定の扱い」）。
 
 ### 実践プロンプト：APIスキーマ後方互換性＆ADR監査エージェント
 
 ````markdown
 ### [ROLE]
-あなたは世界有数の分散システムアーキテクト兼APIガバナンス責任者です。
+あなたは分散システムとAPIガバナンスを担当するレビュアーです。
 提供されたOpenAPI定義のGit差分、または新規作成されたADR（意思決定記録）を厳格に監査し、既存システムへの影響と破壊的リスクを特定してください。
 
 ### [AUDIT CHECKLIST: BREAKING CHANGES]
@@ -266,7 +280,7 @@ AIを活用することで、人間が見落としやすい「微妙な破壊的
 
 ### GitHub ActionsパイプラインへのOpenAPI互換性＆AI監査の組み込み例
 
-上記のSpectralリントおよびAI後方互換性監査エージェントを、PR作成時に自動実行して破壊的変更をブロックするGitHub Actionsワークフロー（`.github/workflows/architecture-audit.yml`）の実装例は以下の通りである。
+上記のSpectralリントと決定論的な破壊的変更検知（oasdiff）をPR作成時に実行してマージを止め、AI監査は助言として実行するGitHub Actionsワークフロー（`.github/workflows/architecture-audit.yml`）の実装例は以下の通りである。
 
 ```yaml
 # .github/workflows/architecture-audit.yml
@@ -288,11 +302,22 @@ jobs:
       - name: Run Spectral OpenAPI Linter
         run: npx @stoplight/spectral-cli lint openapi/*.yaml
 
-      - name: Run AI Breaking Change & ADR Auditor
+      # 決定論的な破壊的変更検知（ハードブロック）
+      - name: Detect Breaking Changes (oasdiff)
+        run: |
+          git show origin/main:openapi/openapi.yaml > /tmp/base.yaml
+          docker run --rm -v /tmp:/base -v "$PWD/openapi:/rev" tufin/oasdiff \
+            breaking /base/base.yaml /rev/openapi.yaml --fail-on ERR
+
+      # AIによる意味的な監査（ソフトブロック：必須チェックにしない）
+      - name: Run AI Semantic & ADR Advisory
+        continue-on-error: true
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           git diff origin/main...HEAD -- openapi/ docs/adr/ > arch_diff.patch
+          # 上記プロンプトに差分を埋め込んでLLMへ送る自作スクリプト。
+          # 呼び出し部分は第12章12.5節の llm_advisory() と同じ構造で実装できる。
           python3 tools/audit_architecture_diff.py arch_diff.patch
 ```
 
@@ -316,13 +341,13 @@ jobs:
 
 ### アーキテクチャ成果物の合否判定基準
 
-- ☐ **合否判定基準（Pass）**:
+- **合否判定基準（Pass）**:
   1. 新規システムまたは大規模機能において、C4モデル（少なくともContextとContainer）が定義されていること。
   2. 重要な技術選定およびトレードオフ判断に対し、ADRが起票されレビュー承認されていること。
   3. APIスキーマ（OpenAPI等）が定義され、Spectral等のLinterによる規約違反がゼロであること。
   4. 既存APIの変更がある場合、後方互換性破壊（Breaking Changes）が存在しない、またはバージョン更新プロトコルが定義されていること。
   5. STRIDEモデルに基づくセキュリティ脅威分析が行われ、主要なリスクへの対策が明記されていること。
-- ☐ **不合格（Fail / Reject）**:
+- **不合格（Fail / Reject）**:
   - APIスキーマが未定義のまま実装を開始しようとするPR、または後方互換性を破壊するスキーマ変更を含むPRは即座にブロック（Reject）する。
 
 ---

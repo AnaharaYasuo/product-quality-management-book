@@ -57,7 +57,7 @@ flowchart TD
     end
 ```
 
-CFDにおいて「平行に推移する帯」は安定した定常状態を示す。特定の帯の幅が急激に拡大している箇所は、その工程が下流に対するボトルネック（制約条件）となっていることを数学的に証明している。リトルの法則 $L = \lambda W$ （仕掛品数 ＝ スループット × リードタイム）が示す通り、工程内に滞留する仕掛品（WIP）が増加すれば、リードタイムは必然的に長期化する。
+CFDにおいて「平行に推移する帯」は安定した定常状態を示す。特定の帯の幅が急激に拡大している箇所は、その工程が下流に対するボトルネック（制約条件）となっている可能性が高い。リトルの法則 L = λW（仕掛品数 ＝ スループット × リードタイム）が示す通り、工程内に滞留する仕掛品（WIP）が増加すれば、リードタイムは必然的に長期化する。
 
 ### 13.2.2 サイクルタイムの内訳分解プロトコル
 
@@ -80,9 +80,9 @@ PRがオープンされてからマージされるまでの総サイクルタイ
 
 特定のシニアエンジニアやテックリードにレビュー負荷が極端に偏る「レビュアー単一障害点（SPOF）」は、組織全体のベロシティ低下とバーンアウトの元凶である。
 
-GitHubのGraphQL APIを用いてPRレビュアーごとのアサイン数、承認数、レビューコメント数を抽出し、ジニ係数（不平等度指数）を算出する。ジニ係数が0.5を超える場合、知識のサイロ化とレビュー渋滞が発生していると判定する。
+GitHubのGraphQL APIを用いて、直近100件のマージ済みPRについてレビュアーごとのレビュー参加数（1つのPRで複数回レビューしても1件と数える）を集計し、ジニ係数（不平等度指数）を算出する。ジニ係数が0.5を超える場合、知識のサイロ化とレビュー渋滞が発生していると判定する。
 
-なお、以下のスクリプト（および13.5節のAIスクラムマスター）はPython 3.10以降の標準ライブラリ（`urllib.request`, `json`, `collections`）のみで動作する。外部パッケージの `pip install` は一切不要であり、クローンしたその場ですぐに実行可能である。事前準備として、GitHubのSettings ➔ Developer settings ➔ Personal access tokensからトークンを発行する。スコープはFine-grained PATなら対象リポジトリの `Pull requests: Read-only` と `Metadata: Read-only`、Classic PATなら `repo` と `read:org` を選択する。あとはターミナルで `export GITHUB_TOKEN="ghp_xxx"`（PowerShellなら `$env:GITHUB_TOKEN="ghp_xxx"`）を設定するだけで準備完了である。
+なお、以下のスクリプト（および13.5節のAIスクラムマスター）はPython 3.11以降の標準ライブラリ（`urllib.request`, `json`, `collections`）だけで動作し、外部パッケージの `pip install` は不要である。事前準備として、GitHubのSettings ➔ Developer settings ➔ Personal access tokensからトークンを発行する。スコープはFine-grained PATなら対象リポジトリの `Pull requests: Read-only` と `Metadata: Read-only`、Classic PATなら `repo` と `read:org` を選択する。あとはターミナルで `export GITHUB_TOKEN="ghp_xxx"`（PowerShellなら `$env:GITHUB_TOKEN="ghp_xxx"`）を設定するだけで準備完了である。
 
 ```python
 # tools/analyze_review_bottlenecks.py
@@ -100,9 +100,10 @@ def compute_gini_coefficient(values):
     cumulative_Diff = sum((2 * i - n - 1) * val for i, val in enumerate(sorted_vals, 1))
     return cumulative_Diff / (n * sum(sorted_vals))
 
-def fetch_pull_requests(owner, repo, token):
-    if not token:
-        # GITHUB_TOKEN 未設定環境でもローカル動作確認できるようサンプルPRレビューデータを返却
+def fetch_pull_requests(owner, repo, token, demo=False):
+    if demo:
+        # 動作確認用のサンプル。実データと取り違えないよう、出力の先頭に明記する
+        print("[DEMO] サンプルデータによる出力です（実際のリポジトリの分析ではありません）")
         sample_nodes = (
             [{"reviews": {"nodes": [{"author": {"login": "tech-lead-A"}, "state": "APPROVED"}]}}] * 78
             + [{"reviews": {"nodes": [{"author": {"login": "senior-dev-B"}, "state": "APPROVED"}]}}] * 12
@@ -111,6 +112,9 @@ def fetch_pull_requests(owner, repo, token):
             + [{"reviews": {"nodes": [{"author": {"login": "member-E"}, "state": "APPROVED"}]}}] * 2
         )
         return {"data": {"repository": {"pullRequests": {"nodes": sample_nodes}}}}
+    if not token:
+        # トークンが無いときにサンプルへ黙って切り替えると、架空の分析結果を本物と誤認させてしまう
+        raise SystemExit("❌ GITHUB_TOKEN が未設定のため分析できません（動作確認は --demo を付けて実行）。")
 
     gql_query = """
     query($owner: String!, $repo: String!) {
@@ -159,13 +163,16 @@ def calculate_review_metrics(data):
 
 if __name__ == "__main__":
     import sys
-    owner, repo = (sys.argv[1], sys.argv[2]) if len(sys.argv) >= 3 else ("my-org", "my-repo")
-    calculate_review_metrics(fetch_pull_requests(owner, repo, os.environ.get("GITHUB_TOKEN", "")))
+    demo = "--demo" in sys.argv
+    args = [a for a in sys.argv[1:] if a != "--demo"]
+    owner, repo = (args[0], args[1]) if len(args) >= 2 else ("my-org", "my-repo")
+    calculate_review_metrics(fetch_pull_requests(owner, repo, os.environ.get("GITHUB_TOKEN", ""), demo=demo))
 ```
 
 ```bash
-# CLIでの実行コマンドと出力サンプル（リポジトリルートの tools/ 配下に配置して実行）
-$ python tools/analyze_review_bottlenecks.py my-org payment-service
+# 動作確認用の --demo 実行と出力（実データでは GITHUB_TOKEN を設定し、--demo を外して実行する）
+$ python tools/analyze_review_bottlenecks.py --demo
+[DEMO] サンプルデータによる出力です（実際のリポジトリの分析ではありません）
 === レビュアー負荷分散分析 ===
 User: tech-lead-A     | レビュー参加数:  78 件 ( 78.0%)
 User: senior-dev-B    | レビュー参加数:  12 件 ( 12.0%)
@@ -197,6 +204,8 @@ User: member-E        | レビュー参加数:   2 件 (  2.0%)
 日々の開発イベント（コミット、PR作成、レビューコメント提出、CI失敗、マージ、Issue起票）は、GitHubのWebhookやイベントAPIを通じてストリーミングデータとして得られる。
 
 このイベントログを常時監視し、プロセスの滞留や歪みをリアルタイムに検知して具体的なリファクタリング処方箋をSlackやPRに提案する「AI Scrum Master」を構築する。
+
+> **データ送信の注意**：この節のスクリプトは、チームの開発メトリクスを外部のLLM APIへ送信する。個人名や個人別の数値を含めず、チーム単位に集計した値だけを送ること（第2章「外部LLMへのデータ送信ポリシー」）。
 
 ```mermaid
 flowchart LR
@@ -252,6 +261,7 @@ def generate_process_diagnosis(sprint_metrics):
 
 
 if __name__ == "__main__":
+    # 説明用の値。実運用では13.3節などで集計したチーム単位の値を渡す
     sample_metrics = {
         "deployment_frequency": "2.1/week",
         "lead_time_hours": 54.0,

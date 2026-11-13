@@ -40,7 +40,7 @@ AIがどれほど驚異的な速度でコードを生成しようとも、それ
 | **スクラム (Scrum)** | スプリント終盤へのテストしわ寄せ（「ミニ・ウォーターフォール化」） | DoR（準備完了の定義）による曖昧ストーリー拒否とDoDのCI強制 | スプリント内バグ持ち越し数、ベロシティ変動係数 |
 | **カンバン (Kanban)** | 仕掛かり作業（WIP）の肥大化とレビュー待ち滞留による品質劣化 | カラムごとの厳格なWIP制限と、滞留アラートの自動発報 | サイクルタイム、累積フロー図（CFD）のバンド幅 |
 | **Shape Up** | 6週間サイクルの終盤でスコープ削減に失敗しテストを省略するリスク | Shaping段階での技術リスク潰し込みと、回路遮断器（Circuit Breaker）の厳守 | ヒルチャート（Hill Chart）の登頂停滞日数、Appetite遵守率 |
-| **トランクベース (TBD)** | 未完成コードのmainマージによる本番デグレ誘発 | フィーチャーフラグによる完全隔離と、10分以内で完結する高速CIゲート | デプロイ頻度、変更リードタイム、変更失敗率（CFR） |
+| **トランクベース (TBD)** | 未完成コードのmainマージによる本番デグレ誘発 | フィーチャーフラグによる隔離と、短時間で完結する高速CIゲート | デプロイ頻度、変更リードタイム、変更失敗率（CFR） |
 | **OSS / 非同期分散型** | コンテキスト共有不足による設計思想の乖離とメンテナのレビュー疲弊 | RFCテンプレートの必須化、CODEOWNERS、AI一次トリアージBot | 初回レビュー応答時間（Time to First Review）、PR放置率 |
 
 ---
@@ -79,14 +79,15 @@ AIがどれほど驚異的な速度でコードを生成しようとも、それ
 - **W3C Recommendation**: *Web Content Accessibility Guidelines (WCAG) 2.2*, W3C (2023).
 - **SLSA v1.0**: *Supply-chain Levels for Software Artifacts Specification v1.0*, OpenSSF / Linux Foundation (2023).
 - **NIST Planning Report 02-3**: G. Tassey, *The Economic Impacts of Inadequate Infrastructure for Software Testing*, NIST (2002).
-- **独立行政法人情報処理推進機構（IPA）**: 『ソフトウェア開発データ白書2022-2023』定量データ分析報告 (2022).
+- **独立行政法人情報処理推進機構（IPA）**: 『ソフトウェア開発分析データ集2022』(2022)。前身は『ソフトウェア開発データ白書』（最終版は2018-2019年版）。
 
 ### 2. 学術論文・研究レポート・技術書籍
 
 - **DORA / Accelerate**: N. Forsgren, J. Humble, G. Kim, *Accelerate*, IT Revolution Press (2018)。Google Cloud DORA, *Accelerate State of DevOps Report* (2021, 2024).
+- **Predictive Test Selection**: M. Machalica et al., *"Predictive Test Selection"*, ICSE-SEIP 2019 (2019).
 - **Barry W. Boehm**: *Software Engineering Economics*, Prentice-Hall (1981)。B. Boehm & V. R. Basili, *"Software Defect Reduction Top 10 List"*, IEEE Computer (2001).
 - **Meta TestGen-LLM**: N. Alshahwan et al., *"Automated Unit Test Improvement using Large Language Models at Meta"*, ACM FSE 2024 (2024).
-- **Meta ACH**: N. Alshahwan et al., *"Mutation-Guided LLM-based Test Generation at Meta"*, arXiv:2501.12862 (2025).
+- **Meta ACH**: C. Foster, A. Gulati, M. Harman, I. Harper, K. Mao, J. Ritchey, H. Robert, S. Sengupta, *"Mutation-Guided LLM-based Test Generation at Meta"*, arXiv:2501.12862 (2025).
 - **Google AutoCommenter**: A. Vijayvergiya et al., *"AI-Assisted Assessment of Coding Practices in Modern Code Review"*, ACM AIware 2024 (2024)。A. Froemmgen et al., *"Resolving Code Review Comments with Machine Learning"*, ICSE-SEIP 2024 (2024).
 - **Three Amigos & Example Mapping**: G. Dinwiddie, *"Three Amigos: All for One and One for All"* (2009)。M. Wynne, *"Introducing Example Mapping"*, Cucumber Blog (2015).
 - **Cognitive Complexity**: G. A. Campbell, *"Cognitive Complexity: An Overview and Evaluation"*, TechDebt '18 / SonarSource (2018).
@@ -97,6 +98,8 @@ AIがどれほど驚異的な速度でコードを生成しようとも、それ
 - **Defect cost curve（異論）**: L. Bossavit, *The Leprechauns of Software Engineering*, Leanpub (2015).
 - **Reward hacking**: METR, *"Recent Frontier Models Are Reward Hacking"* (2025).
 - **SLSA provenance**: OpenSSF, *slsa-github-generator* / *slsa-verifier* (GitHub).
+- **AI coding agent incident (2025)**: Replit社のAIエージェントによる本番データベース削除事例（2025年7月、各報道）。
+- **Package hallucination**: J. Spracklen et al., *"We Have a Package for You!"*, USENIX Security 2025 (2025)。コード生成LLMによる架空パッケージの分析。
 - **Pretotyping**: A. Savoia, *The Right It: Why So Many Ideas Fail and How to Make Sure Yours Succeed*, HarperOne (2019).
 
 ---

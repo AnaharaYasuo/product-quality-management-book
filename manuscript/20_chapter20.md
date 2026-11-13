@@ -45,7 +45,7 @@ flowchart TD
 
 ## 20.2 QAの進化系：テスターからSET、そして品質コーチへ
 
-高品質を高速に実現しているグローバルテック企業において、QAエンジニアのロールは過去15年間で劇的な進化を遂げてきた。
+高品質を高速に実現しているグローバルテック企業において、QAエンジニアのロールは過去15年間で大きく変化してきた。
 
 ```mermaid
 flowchart LR
@@ -119,12 +119,17 @@ Spotifyが公開した組織モデル（Kniberg & Ivarsson, *Scaling Agile @ Spo
 
 どれほど優れた品質ガイドラインが存在しても、膨大な社内Wikiに埋もれていては読まれない。開発者がPRを作成したりIssueを起票した瞬間、社内の過去の障害事例やドメインルールを想起させ、テスト観点を対話形式で助言する「AI Quality Coach」をリポジトリ専属で配備する。
 
+> **データ送信の注意**：この節のスクリプトは、PRの差分と社内の品質ルールを外部のLLM APIへ送信する。第2章「外部LLMへのデータ送信ポリシー」に沿って、送信してよいデータかを確認し、第15章の `sanitize_for_llm()` でマスキングしてから送ること。
+
 ```python
 # tools/ai_quality_coach.py
 import os
 import json
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+MAX_DIFF_CHARS = 20000  # 差分は判断に必要な範囲に絞って送る（第2章「最小限か」）
 
 def provide_quality_coaching(pr_title, pr_diff, domain_rules):
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -163,9 +168,14 @@ def provide_quality_coaching(pr_title, pr_diff, domain_rules):
 
 
 if __name__ == "__main__":
-    pr_title = os.environ.get("PR_TITLE", "feat: クーポン割引計算ロジックの追加")
-    pr_diff = os.environ.get("PR_DIFF", "+ def apply_coupon(total, discount): return max(0, total - discount)")
-    domain_rules = "決済金額は0円未満になってはならず、同一クーポンの二重適用を排他制御すること。"
+    pr_title = os.environ.get("PR_TITLE", "")
+    diff_file = Path(os.environ.get("PR_DIFF_FILE", "pr.diff"))
+    if not diff_file.exists() or not diff_file.read_text(encoding="utf-8").strip():
+        # 組み込みのサンプル差分で「それらしい」助言を出すと、実際のPRを見ていないことに気づけない
+        raise SystemExit(f"❌ PRの差分（{diff_file}）がありません。ワークフローから差分を渡してください。")
+    pr_diff = diff_file.read_text(encoding="utf-8")[:MAX_DIFF_CHARS]
+    # 社内の品質ルール（過去の障害事例やドメインルール）はリポジトリ内のファイルで管理する
+    domain_rules = Path(os.environ.get("QUALITY_RULES_FILE", "docs/quality-rules.md")).read_text(encoding="utf-8")
     print(provide_quality_coaching(pr_title, pr_diff, domain_rules))
 ```
 
@@ -173,7 +183,7 @@ if __name__ == "__main__":
 
 ### GitHub Actionsと連携したAI Quality Coachの自動実行
 
-PRオープン時に自動でコード差分を解析し、品質コーチングコメントを投稿するワークフローのコード例である。
+PRがレビュー可能になった時点で自動でコード差分を解析し、品質コーチングコメントを投稿（既存のコメントがあれば上書き）するワークフローのコード例である。
 
 ```yaml
 # .github/workflows/ai-quality-coach.yml
@@ -181,22 +191,43 @@ name: AI Quality Coach
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# 追加プッシュが続いたときは、古い実行をキャンセルする
+concurrency:
+  group: ai-quality-coach-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   coach:
+    if: github.event.pull_request.draft == false  # ドラフトの間は実行しない
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
       - name: Run AI Quality Coach
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          python tools/ai_quality_coach.py
+          git diff "origin/${BASE_REF}...HEAD" > pr.diff
+          PR_DIFF_FILE=pr.diff python tools/ai_quality_coach.py > coach.md
+      - name: Post or Update Coaching Comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # 前回のボットコメントがあれば上書きし、無ければ新規投稿する
+          gh pr comment "$PR_NUMBER" --body-file coach.md --edit-last || gh pr comment "$PR_NUMBER" --body-file coach.md
 ```
 
-※実運用におけるAPIコスト・レートリミット制御の注意点：`synchronize`（追加プッシュ）のたびに毎回AI Quality Coachを呼び出すと、細かな修正コミットを連打した際にレートリミット（HTTP 429）に達したり、PR欄がボットの長文で埋まったりする恐れがある。本番運用では、① GitHub Actionsの `concurrency` 設定で古い実行を自動キャンセルし、② ドラフトPR（`draft == true`）の間はスキップして `Ready for review` 時のみ実行する。さらに、③ 既存のボットコメントがある場合は新規投稿ではなく上書き更新（Update Comment）する設計とすることで、APIコストと開発者体験（DevEx）を高次元で両立できる。
+※実運用におけるAPIコスト・レートリミット制御の注意点：`synchronize`（追加プッシュ）のたびに毎回AI Quality Coachを呼び出すと、細かな修正コミットを連打した際にレートリミット（HTTP 429）に達したり、PR欄がボットの長文で埋まったりする恐れがある。上のワークフローでは、① `concurrency` 設定で古い実行を自動キャンセルし、② ドラフトPRの間はスキップしてレビュー可能になってから実行し、③ 既存のボットコメントがあれば `--edit-last` で上書きしている。これにより、APIコストと開発者体験（DevEx）を両立しやすくなる。
 
 ## 20.6 QA合否判定基準：全員品質組織の健全性クライテリア
 

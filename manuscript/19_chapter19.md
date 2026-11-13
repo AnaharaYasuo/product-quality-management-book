@@ -88,7 +88,17 @@ flowchart TD
 
 ### テスト改ざんを検出するCIガードレール
 
-このハックを防ぐため、エージェントが提出したPRの差分をCIで解析し、テストを弱める変更を機械的に検出する。検査対象を「`tests/` 配下のファイルの変更と削除」だけにすると、リネーム、新規ファイルでの `skip`、`conftest.py` の書き換え、`pyproject.toml` の `addopts`（`--deselect` など）といった迂回路が残る。以下の実装は、これらの迂回路もまとめて検査する。
+このハックを防ぐため、エージェントが提出したPRの差分をCIで解析し、テストを弱める変更を機械的に検出する。検査対象を「`tests/` 配下のファイルの変更と削除」だけにすると、次のような迂回路が残る。
+
+- テストファイルのリネーム
+- 新規ファイルでの `skip`（`pytestmark = pytest.mark.skip` のようにデコレータを使わない書き方を含む）
+- `tests/` 以外に置いたテストファイル
+- `conftest.py` の書き換えや、`pyproject.toml` の `addopts`（`--deselect` など）
+- CIワークフローでのpytestコマンドや `PYTEST_ADDOPTS` の書き換え
+
+以下の実装は、これらの迂回路もまとめて検査する。
+
+また、差分を取れないときに「改ざんなし」と答えてはならない。GitHub Actionsの既定（`fetch-depth: 1`）の浅いクローンでは `origin/main` が存在せず、差分を計算できない。このとき検査を素通しにすると、ガードレールそのものが無効になる。以下の実装は、差分を取れなければ終了コード2で止まる。
 
 ```python
 # tools/verify_agent_test_integrity.py
@@ -98,46 +108,71 @@ import subprocess
 import sys
 
 TEST_DIR = "tests/"
+# tests/ 以外に置かれたテストファイル（test_*.py / *_test.py）も対象にする
+TEST_FILE = re.compile(r"(^|/)(test_[^/]+|[^/]+_test)\.py$")
 # テストの収集・実行条件を変えられる設定ファイル（ここを書き換えればテストを丸ごと外せる）
-TEST_CONFIG_FILES = ("conftest.py", "pyproject.toml", "pytest.ini", "setup.cfg", "tox.ini")
-# 追加行に現れたら弱体化とみなすパターン
+TEST_CONFIG_FILES = ("conftest.py", "pyproject.toml", "pytest.ini", "setup.cfg", "tox.ini", "noxfile.py")
+# CIワークフロー（pytestコマンドの引数や PYTEST_ADDOPTS を書き換えればテストを外せる）
+CI_DIR = ".github/workflows/"
+# テスト・設定・CIファイルの追加行に現れたら弱体化とみなすパターン
 WEAKENING_PATTERNS = [
-    r"@pytest\.mark\.(skip|skipif|xfail)",
-    r"pytest\.skip\(",
+    r"pytest\.mark\.(skip|skipif|xfail)",  # デコレータでも pytestmark = ... でも検出する
+    r"pytest\.(skip|xfail|importorskip)\(",
     r"unittest\.skip",
     r"--deselect",
-    r"--ignore",
+    r"(^|\s)--ignore(-glob)?[=\s]",
     r"\baddopts\b",
+    r"PYTEST_ADDOPTS",
     r"\bcollect_ignore",
+    r"(^|\s)-k\s",  # テストを名前で絞り込む
 ]
 
 
+def is_test_path(path: str) -> bool:
+    return path.startswith(TEST_DIR) or TEST_FILE.search(path) is not None
+
+
+def is_guarded_path(path: str) -> bool:
+    return is_test_path(path) or path.endswith(TEST_CONFIG_FILES) or path.startswith(CI_DIR)
+
+
 def git(*args: str) -> str:
-    for base in ("origin/main...HEAD", "HEAD~1...HEAD"):  # 浅いクローン時は HEAD~1 にフォールバック
-        res = subprocess.run(
-            ["git", *args, base], capture_output=True, text=True, encoding="utf-8", errors="replace", check=False
-        )
-        if res.returncode == 0:
-            return res.stdout or ""
-    return ""
+    # 浅いクローンでは origin/main が無く、差分を計算できない。
+    # 差分を取れないのに「改ざんなし」と答えないよう、ここで止める（fail-closed）
+    res = subprocess.run(
+        ["git", *args, "origin/main...HEAD"], capture_output=True, text=True, encoding="utf-8", errors="replace", check=False
+    )
+    if res.returncode != 0:
+        print("❌ origin/main との差分を取得できません（actions/checkout に fetch-depth: 0 を指定）。", file=sys.stderr)
+        sys.exit(2)
+    return res.stdout or ""
 
 
-def classify(name_status: str, added_lines: dict[str, list[str]]) -> list[str]:
-    """差分を判定し、違反の説明リストを返す（空なら合格）。"""
+def classify(name_status: str, added_lines: dict[str, list[str]], allow_test_modification: bool = False) -> list[str]:
+    """差分を判定し、違反の説明リストを返す（空なら合格）。
+
+    allow_test_modification は、人が承認ラベルを付けたPRで「既存テストの変更（M）」だけを許可する。
+    削除・リネーム・skipの追加・設定やCIの変更は、承認ラベルがあっても検査する。
+    """
     violations = []
     for line in name_status.splitlines():
         parts = line.split("\t")
         if len(parts) < 2:
             continue
         status, paths = parts[0], parts[1:]
-        touches_tests = any(p.startswith(TEST_DIR) for p in paths)
-        touches_config = any(p.endswith(TEST_CONFIG_FILES) for p in paths)
-        if touches_tests and status[0] in "MDR":  # 変更・削除・リネーム
-            violations.append(f"既存テストの変更/削除/リネーム（{status}）: {' -> '.join(paths)}")
-        if touches_config:
+        touches_tests = any(is_test_path(p) for p in paths)
+        if touches_tests and status[0] in "DR":  # 削除・リネーム
+            violations.append(f"既存テストの削除/リネーム（{status}）: {' -> '.join(paths)}")
+        elif touches_tests and status[0] == "M" and not allow_test_modification:
+            violations.append(f"既存テストの変更（{status}）: {paths[-1]}")
+        if any(p.endswith(TEST_CONFIG_FILES) for p in paths):
             violations.append(f"テスト収集設定の変更（{status}）: {paths[-1]}")
+        if any(p.startswith(CI_DIR) for p in paths):
+            violations.append(f"CIワークフローの変更（テストの実行条件を変えうる）（{status}）: {paths[-1]}")
 
     for path, lines in added_lines.items():
+        if not is_guarded_path(path):
+            continue  # README などの記述まで拾わない
         for added in lines:
             if any(re.search(p, added) for p in WEAKENING_PATTERNS):
                 violations.append(f"テストを外す記述の追加: {path}: {added.strip()}")
@@ -156,11 +191,11 @@ def collect_added_lines() -> dict[str, list[str]]:
 
 
 if __name__ == "__main__":
-    if os.environ.get("ALLOW_TEST_MODIFICATION") == "true":
-        # 人間が allow-test-modification ラベルを付けたPRのみ（ワークフロー側で環境変数に変換）
-        print("ℹ️ 人間の承認ラベルにより、既存テストの変更を許可します。")
-        sys.exit(0)
-    found = classify(git("diff", "--name-status", "-M"), collect_added_lines())
+    # 人間が allow-test-modification ラベルを付けたPRのみ true（ワークフロー側で環境変数に変換）
+    allow = os.environ.get("ALLOW_TEST_MODIFICATION") == "true"
+    if allow:
+        print("ℹ️ 承認ラベルにより、既存テストの『変更』だけを許可します（削除・skip追加・設定変更は検査します）。")
+    found = classify(git("diff", "--name-status", "-M"), collect_added_lines(), allow_test_modification=allow)
     if found:
         print("❌ テストの改ざん・弱体化の疑いがあります:")
         for v in found:
@@ -173,22 +208,22 @@ if __name__ == "__main__":
 
 ここで実運用上の重要なジレンマが生じる。「ビジネス仕様の変更に伴って、既存のテストコードの期待値を正当に修正しなければならないケース」である。既存テストの変更（`M` ステータス）を完全に一律禁止したままでは、仕様変更タスクまでロックされてしまう。このジレンマは以下の**「二段階コミット分離（Two-Phase Spec Update）プロトコル」**によって解決する。
 
-1. **人間および「Spec Agent」による先行テスト更新フェーズ（人間のボトルネック解消）**: 仕様変更を伴うタスクでは、実装エージェント（Coder Agent）が動く前に、先に既存テストの期待値を新仕様へ書き換えてブランチへロック（Red状態のテストを確定）させる。このとき、人間がいちいち手動でテストコードを書き換えていると、人間側がボトルネックになってしまう。そこで実務では、**「テストコード（`tests/`）の編集権限のみを与えられ、実装コード（`src/`）の編集を機械的に禁じられた『仕様・テスト専任エージェント（Spec Agent）』」**を前段に配置する。Spec AgentがPRDの変更差分から新しい受入テストコードを生成し、人間は「そのテスト差分（数行〜数十行のGiven-When-Then）」だけを30秒で目視承認（Approve）してロックすることで、人間の認知負荷を極小化したまま完全な二段階分離をスケールさせることができる。
+1. **人間および「Spec Agent」による先行テスト更新フェーズ（人間のボトルネック解消）**: 仕様変更を伴うタスクでは、実装エージェント（Coder Agent）が動く前に、先に既存テストの期待値を新仕様へ書き換えてブランチへロック（Red状態のテストを確定）させる。このとき、人間がいちいち手動でテストコードを書き換えていると、人間側がボトルネックになってしまう。そこで実務では、**「テストコード（`tests/`）の編集権限のみを与えられ、実装コード（`src/`）の編集を機械的に禁じられた『仕様・テスト専任エージェント（Spec Agent）』」**を前段に配置する。Spec AgentがPRDの変更差分から新しい受入テストコードを生成し、人間は「そのテスト差分（数行〜数十行のGiven-When-Then）」だけを30秒で目視承認（Approve）してロックすることで、人間の認知負荷を抑えたまま二段階分離をスケールさせることができる。
    - **Spec Agentのシステムプロンプト骨子**: `「あなたは仕様・テスト専任エージェントです。PRDの差分から tests/ 配下のテストコードのみを生成・更新してください。src/ 配下の実装ファイルへの変更は一切禁止します。更新後のテストが現在の実装に対して正しくFail（Red）になることを確認してPRを作成してください。」`
    - **Coder Agentのシステムプロンプト骨子**: `「あなたは実装専任エージェントです。ロックされた tests/ 配下のテストをすべてPass（Green）させるように src/ 配下の実装コードのみを修正してください。tests/ 配下の既存テストファイルの編集・削除・スキップ付与は機械的に禁止されています。」`
-2. **ラベル付きエスカレーション（Human-in-the-Loop）**: もし実装エージェントの実行中に既存テストの修正が不可避であると判明した場合、エージェントはテストを勝手に書き換えるのではなく、「テスト修正案と仕様変更根拠」をPRコメントに出力して一時停止（Escalation）する。人間レビュアーが妥当性を確認し、PRに `allow-test-modification` ラベルを付与したときのみ、`verify_agent_test_integrity.py` の変更ブロックをバイパス許可する設計とすることで、報酬ハッキングの防止と仕様変更の柔軟性を完全に両立できる。
+2. **ラベル付きエスカレーション（Human-in-the-Loop）**: もし実装エージェントの実行中に既存テストの修正が不可避であると判明した場合、エージェントはテストを勝手に書き換えるのではなく、「テスト修正案と仕様変更根拠」をPRコメントに出力して一時停止（Escalation）する。人間レビュアーが妥当性を確認し、PRに `allow-test-modification` ラベルを付与したときのみ、`verify_agent_test_integrity.py` で既存テストの「変更」だけを許可する設計とする（削除やskipの追加は、ラベルがあっても止める）。これにより、報酬ハッキングの防止と仕様変更の柔軟性を両立しやすくなる。
 
 ---
 
 ## 19.4 サンドボックス実行環境とセキュリティ境界
 
-AIエージェントにシェルコマンド実行権限を与えることは、強力であると同時に極めて危険である。ハルシネーションや敵対的プロンプトにより、エージェントが破壊的なコマンドを実行したり、内部認証情報を外部へ送信したりするリスクがある。実際に2025年には、AIコーディングエージェントが指示に反して本番データベースを削除した事例が広く報じられた。
+AIエージェントにシェルコマンド実行権限を与えることは、強力であると同時に極めて危険である。ハルシネーションや敵対的プロンプトにより、エージェントが破壊的なコマンドを実行したり、内部認証情報を外部へ送信したりするリスクがある。実際に2025年7月には、Replit社のAIコーディングエージェントが、コード変更を凍結するよう指示されていたにもかかわらず、SaaStr創業者ジェイソン・レムキン氏のプロジェクトで本番データベースを削除した事例が広く報じられた。
 
 ### 3層のサンドボックス防壁
 
-1. **コンテナ隔離（Ephemeral MicroVM / Docker）**: エージェントごとに使い捨ての隔離コンテナ（gVisorやFirecracker等）を起動し、ホストOSカーネルへの直接アクセスを完全遮断する。
+1. **コンテナ隔離（Ephemeral MicroVM / Docker）**: エージェントごとに使い捨ての隔離コンテナ（gVisorやFirecracker等）を起動し、ホストOSカーネルへの直接アクセスを遮断する。
 2. **ネットワーク・エグレス制御**: インターネットへのアウトバウンド通信をDNSレベルで遮断し、事前に許可されたパッケージリポジトリ（内部PyPIミラー等）以外への通信をドロップする。
-3. **ファイルシステム読み書き権限の最小化**: `.git/config` や `.env`、CIワークフロー設定（`.github/workflows/`）を読み取り専用（Read-Only）マウントにし、エージェントによる権限昇格を防ぐ。
+3. **ファイルシステム読み書き権限の最小化**: `.git` やCIワークフロー設定（`.github/workflows/`）は読み取り専用（Read-Only）でマウントし、`.env` などの秘密情報はそもそもマウントしない。これにより、エージェントによる権限昇格を防ぐ。
 
 さらに、エージェントの操作ログ（実行した全Bashコマンド、標準出力、ファイル編集履歴）を不変ストレージへリアルタイムでストリーミング保存する「監査トレース（Audit Trail）」を配備する。万一エージェントが不正な挙動やセキュリティ侵害を試みた場合であっても、フォレンジック調査によって侵入経路と影響範囲を即座に特定できる体制を敷く。
 
@@ -207,6 +242,12 @@ services:
       - ./src:/workspace/src:rw              # 実装コードのみ書き込み許可
       - ./tests:/workspace/tests:ro          # テストコードは読み取り専用マウント（第3層）
       - ./.github:/workspace/.github:ro      # CI設定の改ざん防止（第3層）
+      - ./.git:/workspace/.git:ro            # Git設定・履歴の改ざん防止（第3層）
+      # .env などの秘密情報はマウントしない
+
+networks:
+  internal-mirror-only:
+    internal: true  # 外部への経路を持たないネットワーク。社内PyPIミラー等だけを同じネットワークに置く
 ```
 
 ---
@@ -233,7 +274,7 @@ sequenceDiagram
     Sec->>Sec: CWE-79/89脆弱性、不要な外部呼出スキャン
     Auditor-->>GH: 監査指摘コメント (Reject / Request Changes)
     Sec-->>GH: セキュリティスコア付与
-    Note over Dev,GH: 全監査エージェントがApproveするまで再修正ループ
+    Note over Dev,GH: 指摘があれば修正（監査結果は助言。マージの可否は人が決める）
     Auditor-->>GH: 最終合格承認 (Approved)
     Human->>GH: 最終承認 (One-Click Merge)
 ```
@@ -324,7 +365,7 @@ AIエージェントが提出したプルリクエストに対する客観的合
 | **指示の与え方** | チャットで「適当にバグ直しといて」と自然言語で指示。 | 機械可読な仕様書（YAML）で前提・不変条件を厳密定義。 |
 | **テストの扱い** | エージェントにテストファイルを自由に修正させる。 | 既存テストをロックし、新規テスト追加のみを許可。 |
 | **実行環境** | 開発者のローカルPC上で直接フル権限で動かす。 | ネットワーク遮断された隔離コンテナ内で最小権限実行。 |
-| **レビュー体制** | 生成された膨大な差分に人間が目を通しきれずスルー。 | 独立監査マルチエージェントが敵対的に精査し承認。 |
+| **レビュー体制** | 生成された膨大な差分に人間が目を通しきれずスルー。 | 独立した監査エージェントが敵対的に精査し、人が最終承認する。 |
 
 ---
 
@@ -332,9 +373,9 @@ AIエージェントが提出したプルリクエストに対する客観的合
 
 ### 演習手順
 
-1. **テスト防御スクリプトの配置**: `tools/verify_agent_test_integrity.py` をリポジトリにコミットする。
+1. **テスト防御スクリプトの配置**: `tools/verify_agent_test_integrity.py` をリポジトリにコミットし、CIから実行する。`actions/checkout` には `fetch-depth: 0` を指定する（浅いクローンでは差分を取れず、スクリプトは終了コード2で止まる）。
 2. **疑似攻撃ブランチの作成**: 新規ブランチを切り、既存の単体テストの `assert` 行を削除またはコメントアウトしてプッシュする。
-3. **PRとCIの自動遮断確認**: GitHub Actions上でCIが走り、スクリプトが「エージェントによる既存テスト改変は禁止されています」とエラーを出力してマージがブロックされることを確認する。あわせて、テストファイルのリネームや `@pytest.mark.skip` の追加でも検知されることを確かめる。
+3. **PRとCIの自動遮断確認**: GitHub Actions上でCIが走り、スクリプトが「テストの改ざん・弱体化の疑いがあります」とエラーを出力してマージがブロックされることを確認する。あわせて、テストファイルのリネーム、`@pytest.mark.skip` や `pytestmark = pytest.mark.skip` の追加、ワークフローでのpytest引数の変更でも検知されることを確かめる。
 
 ---
 
