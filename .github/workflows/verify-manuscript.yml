@@ -75,7 +75,7 @@ jobs:
           fail: true
 
   epub-validation:
-    name: PDF & EPUB Full Build + EPUBCheck
+    name: EPUB Build and EPUBCheck
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
