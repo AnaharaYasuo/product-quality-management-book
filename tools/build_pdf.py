@@ -341,35 +341,74 @@ body {{
 .cover-page {{
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
+  height: 245mm;
+  page-break-after: always;
+  background: #ffffff;
+  border-top: 14mm solid #b91c1c;
+  border-bottom: 4mm solid #b91c1c;
+  padding: 10mm 16mm 12mm 16mm;
+  box-sizing: border-box;
+  font-family: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", Georgia, serif;
+}}
+
+.cover-page .cover-tagline {{
+  font-size: 9.5pt;
+  font-style: italic;
+  color: #555555;
+  letter-spacing: 0.04em;
+  border-bottom: 0.5pt solid #cccccc;
+  padding-bottom: 4pt;
+  text-align: right;
+}}
+
+.cover-page .cover-illustration {{
+  display: flex;
   justify-content: center;
   align-items: center;
-  height: 240mm;
-  text-align: center;
-  page-break-after: always;
-  border: 2px solid #2b5b84;
-  padding: 20mm;
-  box-sizing: border-box;
+  margin: 14mm auto 10mm auto;
+}}
+
+.cover-page .cover-band {{
+  background: #b91c1c;
+  color: #ffffff;
+  padding: 14pt 16pt;
+  margin: 0 -16mm;
+  text-align: left;
 }}
 
 .cover-page .book-title {{
   font-size: 26pt;
   font-weight: bold;
-  color: #1a3c5a;
-  margin-bottom: 12pt;
+  color: #ffffff;
+  line-height: 1.3;
+  margin: 0 0 6pt 0;
   border: none;
   page-break-before: avoid;
 }}
 
 .cover-page .book-subtitle {{
-  font-size: 14pt;
-  color: #444;
-  margin-bottom: 40pt;
+  font-size: 12pt;
+  color: #fde8e8;
+  font-family: "Noto Sans JP", "Yu Gothic", sans-serif;
+  margin: 0;
+  line-height: 1.4;
 }}
 
 .cover-page .book-meta {{
-  font-size: 12pt;
-  color: #555;
-  margin-top: auto;
+  font-size: 10pt;
+  color: #333333;
+  text-align: right;
+  font-family: "Noto Sans JP", "Yu Gothic", sans-serif;
+  line-height: 1.6;
+  margin-top: 10mm;
+}}
+
+.cover-page .book-meta .author-name {{
+  font-size: 13pt;
+  font-weight: bold;
+  color: #111111;
+  margin-bottom: 4pt;
 }}
 
 .toc-page {{
@@ -546,13 +585,45 @@ th {{
 </head>
 <body>
   <div class="cover-page">
-    <div class="book-title">プロダクト品質管理の実践ガイド</div>
-    <div class="book-subtitle">高品質なプロダクトを継続的に届けるための設計とプロセス</div>
+    <div class="cover-tagline">Practical Guide to Product Quality Management — Deterministic Anchors &amp; AI Assurance</div>
+    <div class="cover-illustration">
+      <svg width="210" height="210" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" aria-label="Owl woodcut style illustration">
+        <g fill="none" stroke="#1f2937" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <!-- Branch -->
+          <path d="M20 165 Q100 155 180 168" stroke-width="3"/>
+          <path d="M45 162 L32 174 M150 164 L165 175" stroke-width="1.5"/>
+          <!-- Owl body -->
+          <ellipse cx="100" cy="112" rx="38" ry="48" fill="#ffffff"/>
+          <!-- Wings -->
+          <path d="M64 95 Q52 125 72 152" stroke-width="2.2"/>
+          <path d="M136 95 Q148 125 128 152" stroke-width="2.2"/>
+          <!-- Feather hatching -->
+          <path d="M78 105 Q100 112 122 105 M74 118 Q100 126 126 118 M76 131 Q100 139 124 131 M82 143 Q100 149 118 143" stroke-width="1.2"/>
+          <!-- Head & Ear tufts -->
+          <path d="M66 64 L54 44 L78 56 Q100 50 122 56 L146 44 L134 64" fill="#ffffff"/>
+          <!-- Facial disc -->
+          <circle cx="84" cy="74" r="14" fill="#ffffff"/>
+          <circle cx="116" cy="74" r="14" fill="#ffffff"/>
+          <circle cx="84" cy="74" r="5" fill="#1f2937"/>
+          <circle cx="116" cy="74" r="5" fill="#1f2937"/>
+          <circle cx="82" cy="72" r="1.5" fill="#ffffff" stroke="none"/>
+          <circle cx="114" cy="72" r="1.5" fill="#ffffff" stroke="none"/>
+          <!-- Beak -->
+          <polygon points="100,79 95,88 100,93 105,88" fill="#1f2937"/>
+          <!-- Talons -->
+          <path d="M84 158 L80 165 M88 158 L88 166 M92 158 L95 165" stroke-width="2"/>
+          <path d="M108 158 L105 165 M112 158 L112 166 M116 158 L120 165" stroke-width="2"/>
+        </g>
+      </svg>
+    </div>
+    <div class="cover-band">
+      <div class="book-title">プロダクト品質管理の実践ガイド</div>
+      <div class="book-subtitle">高品質なプロダクトを継続的に届けるための設計とプロセス</div>
+    </div>
     <div class="book-meta">
-      <p>著者：Anahara Yasuo</p>
-      <p>版数：第1版 第1刷（全7部・25章＋巻末付録）</p>
-      <p>Copyright © 2026 Anahara Yasuo. All rights reserved.</p>
-      <p>掲載サンプルコードは MIT License で提供（LICENSE-CODE 参照）</p>
+      <div class="author-name">Anahara Yasuo 著</div>
+      <div>第1版 第1刷（全7部・25章＋巻末付録）</div>
+      <div>Copyright © 2026 Anahara Yasuo. All rights reserved. / サンプルコード: MIT License</div>
     </div>
   </div>
   {''.join(toc_html)}
