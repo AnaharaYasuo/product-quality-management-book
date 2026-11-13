@@ -103,7 +103,7 @@ def test_calculate_discount():
 
 ### 2. 境界値と異常系ロジックの盲点
 
-C0（行網羅）やC1（分岐網羅）では、「入力値がNULLの場合」「数値オーバーフローが起きた場合」「外部APIが500エラーを返した場合」といった状態空間の組み合わせ爆発を捕捉できない。カバレッジという数値目標を盲信することは、組織に極めて危険な集団的盲目をもたらする。
+C0（行網羅）やC1（分岐網羅）では、「入力値がNULLの場合」「数値オーバーフローが起きた場合」「外部APIが500エラーを返した場合」といった状態空間の組み合わせ爆発を捕捉できない。カバレッジという数値目標を盲信することは、組織に危険な思い込みをもたらす。
 
 - **グッドハートの法則の罠**: 「測定値が目標になると、それはもはや良い測定値ではなくなる」。カバレッジを評価指標にしたチームは、検証の本質ではなく「いかに楽に行を通過させるか」に知恵を絞るようになる。
 - **真の網羅性（Path/Condition Coverage）への昇華**: 重要なドメインモデルでは、MC/DC（Modified Condition/Decision Coverage: 改良条件/決定網羅）や変異解析を導入し、論理式の各条件が独立して結果に影響を与えているかを検証する。
@@ -157,7 +157,7 @@ sequenceDiagram
 
 ミューテーションテストの品質指標は「ミューテーションスコア（Mutation Score）」である。
 
-> **計算式**: `ミューテーションスコア (%) = (Killed Mutants [殺害された変異体数] ÷ Total Mutants [生成された全変異体数]) × 100`
+> **計算式**: `ミューテーションスコア (%) = (検出された変異体数 [Killed＋Timeout] ÷ 有効な変異体数 [検出＋Survived]) × 100`（コンパイルエラーなど評価できなかった変異体は分母から除く）
 
 高い信頼性が求められる開発現場では、コアなドメインロジックにおいて**ミューテーションスコア75%以上（決済・認証・金融・医療などTier 1領域では80%以上、第22章参照）**を出発点の目安とする。
 
@@ -174,11 +174,13 @@ sequenceDiagram
   ],
   "thresholds": {
     "high": 80,
-    "low": 65,
-    "break": 70
+    "low": 75,
+    "break": 75
   }
 }
 ```
+
+`break: 75` は汎用のドメインロジックに対する本書共通の基準である（第2章）。決済・認証などTier 1領域のディレクトリは、別の設定ファイルで `break: 80` にする。
 
 Pythonプロジェクト（pytest環境）で同様にミューテーションテストを実施する場合は、`mutmut`（安定版の `mutmut>=2.4,<3.0` 系）を用いて `pyproject.toml` に設定を記述する。なお `mutmut 3.x` 系では設定キーや実行体系が異なるため、CIで `--paths-to-mutate` による差分指定を行う場合は `2.x` 系にバージョン固定することを推奨する。
 
@@ -196,19 +198,26 @@ mutmut run --paths-to-mutate=src/domain/order_service.py
 mutmut results  # 生き残った変異体IDの一覧を表示し、mutmut show <id> で差分を確認
 ```
 
-さらに、CIパイプラインでPRごとに「変更されたPythonファイルのみ」を対象に差分ミューテーションテスト（Incremental Mutation Testing）を実行するGitHub Actionsワークフロースニペットは以下の通りである。これにより、10万行規模のリポジトリ（フルスキャンでは約2〜3時間・CIランナー費用にして1回あたり数ドルを要する規模）であっても、PRごとの実行時間をわずか1〜2分（コスト数セント未満）に抑え込むことができる。
+さらに、CIパイプラインでPRごとに「変更されたPythonファイルのみ」を対象に差分ミューテーションテスト（Incremental Mutation Testing）を実行するGitHub Actionsワークフロースニペットは以下の通りである。これにより、リポジトリ全体を対象にするより、PRごとの実行時間を大きく短縮できる（目安として、変更ファイルが数個なら数分程度）。
 
 ```yaml
 # .github/workflows/mutation-diff-gate.yml（PR変更ファイル限定の高速ミューテーションゲート）
+- uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+  with:
+    fetch-depth: 0  # origin/main との差分を取るために必須
 - name: Run Incremental Mutation Testing on Changed Domain Files
   run: |
-    CHANGED_PY=$(git diff --name-only origin/main...HEAD -- 'src/domain/**/*.py' | tr '\n' ',' | sed 's/,$//')
-    if [ -n "$CHANGED_PY" ]; then
-      echo "Mutating changed files: $CHANGED_PY"
-      mutmut run --paths-to-mutate="$CHANGED_PY"
-    else
+    set -euo pipefail  # git diff が失敗したら「変更なし」と誤認せずに止める
+    # `:(glob)` を付けないと `**/` が「1階層以上」と解釈され、src/domain/ 直下のファイルが漏れる
+    CHANGED_PY=$(git diff --name-only origin/main...HEAD -- ':(glob)src/domain/**/*.py' | tr '\n' ',' | sed 's/,$//')
+    if [ -z "$CHANGED_PY" ]; then
       echo "No domain files changed. Skipping mutation test."
+      exit 0
     fi
+    echo "Mutating changed files: $CHANGED_PY"
+    # mutmut run は生存変異体が1つでもあると非ゼロで終わるため、終了コードではなく
+    # 変異スコアで判定する（第24章 verify_deterministic_anchors.py の check_mutation_score）
+    python -c "import sys; sys.path.insert(0, 'tools'); from verify_deterministic_anchors import check_mutation_score; check_mutation_score(sys.argv[1], threshold=0.75)" "$CHANGED_PY"
 ```
 
 ---
@@ -216,7 +225,7 @@ mutmut results  # 生き残った変異体IDの一覧を表示し、mutmut show 
 ## 9.4 Flakyテスト（不安定なテスト）の静的検出と排除プロトコル
 
 Flakyテストとは、「コードを一切変更していないにもかかわらず、ある時はPassし、ある時はFailする非決定論的（Non-deterministic）なテスト」を指す。
-FlakyテストがCIに1つでも混入すると、開発者はCIがRedになっても「またいつものFlakyだろう」と無視して再実行（Re-run）を連打するようになる。これにより、本物のバグによるCI失敗が見逃され、品質ゲートは完全に崩壊する。
+FlakyテストがCIに1つでも混入すると、開発者はCIがRedになっても「またいつものFlakyだろう」と無視して再実行（Re-run）を連打するようになる。これにより、本物のバグによるCI失敗が見逃され、品質ゲートは機能しなくなる。
 
 ### 1. Flakyテストを生み出す3大要因
 
@@ -231,7 +240,7 @@ Flakyテストの根本原因は、テストが実行環境の暗黙的な前提
 
 ### 2. Flakyテストの静的検出手法
 
-Flakyテストは動的実行だけでなく、静的コード解析によっても高精度に事前検知できる。
+Flakyテストは動的実行だけでなく、静的コード解析によってもその一部を事前に検知できる。
 
 - **スリープ呼び出しの検知**: AST解析でテストコード内の `Thread.sleep()` や `time.sleep()`、`setTimeout()` を禁止ルールとしてSemgrepやESLintで検知。
 - **ハードコードされたポート・ファイルパス**: ローカル固有のパス（`/tmp/...`）や固定ポート（`8080`）の使用を検知し、エフェメラルな動的バインドを強制。
@@ -255,9 +264,9 @@ flowchart TD
 
 ---
 
-## 9.5 AI確証実践：Meta「TestGen-LLM / Assured Offline LLMSE」の完全再現
+## 9.5 AI確証実践：Meta「TestGen-LLM / Assured Offline LLMSE」に学ぶ簡略実装
 
-2024年、Meta社の研究チーム（Alshahwan et al.）は国際会議FSE 2024にて画期的な論文（*Automated Unit Test Improvement using Large Language Models at Meta*）を発表した。さらに2025年には、変異テスト（Mutation Testing）とLLMを融合させた後続システム「ACH」（*Mutation-Guided LLM-based Test Generation at Meta*）へと発展させている。
+2024年、Meta社の研究チーム（Alshahwan et al.）は国際会議FSE 2024で論文 *Automated Unit Test Improvement using Large Language Models at Meta* を発表した。さらに2025年には、Meta社の研究者ら（Foster et al.）が後続システム「ACH」を報告している（*Mutation-Guided LLM-based Test Generation at Meta*, arXiv:2501.12862）。ACHは、変異テスト（Mutation Testing）とLLMを組み合わせたものである。
 Metaが開発した「TestGen-LLM」は、人間がレビューする前に**3重の厳格な検証フィルター（Assured LLM-based Software Engineering）**を適用する。これにより、ノイズや幻覚を除いた高品質なPRのみを自動生成する。
 
 ```mermaid
@@ -287,10 +296,13 @@ Metaが採用した3重フィルターは、以下の段階的ゲートウェイ
 
 ### 2. 実践：PythonによるMeta式TestGen-LLMパイプラインの実装
 
-以下は、このMeta方式の骨格をオープンソース環境（pytest / coverage.py）で再現した**簡略実装**である。論文の仕組みをそのまま再現したものではなく、LLMの呼び出し部分は差し替え可能な関数として切り出している。第2フィルターでは、候補テストを含む**全テストスイート**を複数回実行し、1回でも失敗すればFlakyまたは既存の振る舞いの破壊とみなして破棄する。
+以下は、このMeta方式の骨格をオープンソース環境（pytest / coverage.py）で組み立てた**簡略実装**である。論文の仕組みをそのまま再現したものではなく、LLMの呼び出し部分は差し替え可能な関数として切り出している。第2フィルターでは、候補テストを含む**全テストスイート**を複数回実行し、1回でも失敗すればFlakyまたは既存の振る舞いの破壊とみなして破棄する。
+
+なお、カバレッジ純増だけを条件にすると、9.2節の「何も検証しないテスト」でも合格してしまう。そこで本書の実装では、第1フィルターの直後に、アサーションの有無を確かめるフィルター（第23章の空洞テスト検出と同じ考え方）を加えている。
 
 ```python
 # tools/assured_testgen.py
+import ast
 import json
 import os
 import subprocess
@@ -299,6 +311,26 @@ from pathlib import Path
 
 REPEAT_RUNS = 5   # Flaky判定のための反復回数
 TIMEOUT_SEC = 300
+
+
+def _call_name(node: ast.Call) -> str:
+    func = node.func
+    return func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+
+
+def has_assertions(path: Path) -> bool:
+    """すべてのテスト関数が assert 文か検証呼び出し（assertEqual, pytest.raises 等）を含むか。"""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
+            verified = any(
+                isinstance(n, ast.Assert)
+                or (isinstance(n, ast.Call) and (_call_name(n).startswith("assert") or _call_name(n) in {"raises", "warns"}))
+                for n in ast.walk(node)
+            )
+            if not verified:
+                return False
+    return True
 
 
 def run_cmd(cmd: list[str]) -> tuple[int, str]:
@@ -333,6 +365,11 @@ def run_meta_filters(candidate: Path, base_coverage: float) -> bool:
     code, out = run_cmd([sys.executable, "-m", "py_compile", str(candidate)])
     if code != 0:
         print(f"❌ Filter 1 (Build): {out.strip()}")
+        return False
+
+    # 第1.5フィルター: アサーションの有無（カバレッジだけを増やす空洞テストを通さない）
+    if not has_assertions(candidate):
+        print("❌ Filter 1.5 (Assertion): 検証（assert / pytest.raises 等）を含まないテスト関数があります。")
         return False
 
     # 第2フィルター: 既存テストを含む全件を反復実行（Flaky・回帰の排除）
@@ -381,11 +418,11 @@ if __name__ == "__main__":
 ### 3. 人間レビュアーとAI生成テストの協調ワークフロー
 
 Metaの現場知見において最も示唆に富んでいるのは、「AIが生成したPRに対する人間の受容率」である。
-Metaの研究では、TestGen-LLMが提出したPRのうち、実に**73%が人間のエンジニアによって修正なしで承認・マージ**された。この高い採択率を実現した鍵は以下の3点である。
+Metaの論文によれば、InstagramとFacebookでのテストイベント（test-a-thon）で、TestGen-LLMの推薦の**73%がエンジニアによって本番への採用を認められた**。この高い採択率を実現した鍵は以下の3点である。
 
 - **差分の小ささ（Focused Small Diffs）**: 1つのPRで何十個ものテストを一気に追加するのではなく、特定の未カバー行を狙い撃ちした「1〜2個の簡潔なテストケース」のみをPR化する。
 - **PR説明文へのエビデンス明記**: 「このテストによって、`src/order.py` の行45-52の例外処理分岐が新たにカバーされました」という具体的理由をPR本文に自動記載する。
-- **既存スタイルへの同調**: リポジトリ内の既存テストコードをfew-shot例としてプロンプトに注入し、プロジェクト固有の命名規則やアサーションライブラリを完全踏襲する。
+- **既存スタイルへの同調**: リポジトリ内の既存テストコードをfew-shot例としてプロンプトに注入し、プロジェクト固有の命名規則やアサーションライブラリを踏襲させる。
 
 ---
 

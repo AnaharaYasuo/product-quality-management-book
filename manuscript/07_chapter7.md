@@ -1,6 +1,6 @@
 # 第7章：ソースコード・成果物の検証と多層監査
 
-現代のソフトウェア開発において、ソースコードは開発者が一文字ずつキーボードで打ち込むものから、Copilot等の生成AIやLLMエージェントが大量に生成・提案するものへと急速に変容しつつある。生成速度が10倍に加速した開発現場において、人間のコードレビューだけに頼る品質保証は完全に破綻をきたしている。
+現代のソフトウェア開発において、ソースコードは開発者が一文字ずつキーボードで打ち込むものから、Copilot等の生成AIやLLMエージェントが大量に生成・提案するものへと急速に変容しつつある。生成速度が10倍に加速した開発現場において、人間のコードレビューだけに頼る品質保証は限界を迎えつつある。
 レビュー担当者の疲弊（Reviewer Fatigue）、チェックの見落とし、スタイルや好みの議論によるPR（プルリクエスト）の長期滞留が日常化している。さらに、AIがもたらす幻覚（Hallucination）やタイポスクワッティング攻撃への懸念も増大している。これらに対処するためには、コードを「機械による静的解析・SAST」「AI確証パイプライン」「人間による本質的設計レビュー」の多層防壁で検証・監査するアーキテクチャが不可欠である。
 本章では、ソースコード成果物に対する多層検証パイプラインの設計、Googleの大規模コードレビュー研究「AutoCommenter」に学ぶ人間と自動化の境界設計、そしてAI生成コード時代に必須となる厳格な監査基準を詳解する。
 
@@ -189,7 +189,7 @@ jobs:
             --exclude "src/generated/**" --exclude "**/migrations/**"
 ```
 
-この際、GitHub Actionsのデフォルト設定（`fetch-depth: 1` の浅いクローン）のままだと、ベースブランチ（`origin/main`）のコミット履歴が見つからず差分計算が失敗する。必ず `fetch-depth: 0` を指定するか、事前に `git fetch origin main` を実行することが実運用上の重要な注意点である。自動生成コード（OpenAPI生成クライアントやマイグレーションファイル等）を計算対象から除外することで、数百万行規模のモノレポでも10秒以内の高速フィードバックを維持できる。
+この際、GitHub Actionsのデフォルト設定（`fetch-depth: 1` の浅いクローン）のままだと、ベースブランチ（`origin/main`）のコミット履歴が見つからず差分計算が失敗する。必ず `fetch-depth: 0` を指定するか、事前に `git fetch origin main` を実行することが実運用上の重要な注意点である。自動生成コード（OpenAPI生成クライアントやマイグレーションファイル等）を計算対象から除外することで、大規模なモノレポでもフィードバックまでの時間を短く保ちやすい。
 
 ### 2. 人間が注力すべき3大レビュー観点
 
@@ -229,7 +229,7 @@ jobs:
 
 ---
 
-## 7.4 Google「AutoCommenter」に学ぶ：機械的指摘の完全自動化と「レビュー疲弊」の防護
+## 7.4 Google「AutoCommenter」に学ぶ：機械的な指摘の自動化と「レビュー疲弊」の軽減
 
 Googleは数万人のエンジニアが日々膨大なコードを生産する中で、コードレビューの品質向上と速度向上を両立させるため、大規模言語モデルを活用した社内自動コードレビューシステム「AutoCommenter」を開発・運用している。Googleの研究チームは、その設計と運用知見を論文 *AI-Assisted Assessment of Coding Practices in Modern Code Review*（Vijayvergiya et al., 2024）等で公開している。また関連研究 *Resolving Code Review Comments with Machine Learning*（Froemmgen et al., ICSE-SEIP 2024）も含め、そこで示された原則はあらゆる組織のレビュー改革に極めて有益である。
 
@@ -239,22 +239,22 @@ flowchart TD
         A["人間レビュアーによる全件目視"] --> B["スタイル・構文・コーディング規約の指摘に時間を浪費"] --> C["レビュアー疲弊 & PR滞留"]
     end
     subgraph AutoCommenterFlow["Google AutoCommenterのアプローチ"]
-        D["コーディング規約・ベストプラクティス違反をAIが自動検出"] --> E["高信頼度コメントと修正パッチのみをPR上に自動投稿"] --> F["人間は高度な設計・ドメイン判断のみに集中"]
+        D["コーディング規約・ベストプラクティス違反をAIが自動検出"] --> E["信頼度の高い指摘だけを規約文書へのリンク付きで自動投稿"] --> F["人間は高度な設計・ドメイン判断のみに集中"]
     end
 ```
 
 ### Googleの知見：自動化ボット設計の3原則
 
 1. **高い適合率（High Precision）とフィードバック制御**:
-   誤検知（False Positive）が多いボットは開発者に無視されるようになり、最終的に通知を切られる。AutoCommenterはモデルの信頼度スコアに厳格な閾値を設けるとともに、開発者からの「Thumbs-up / Thumbs-down（有用・無用）」フィードバックを継続収集し、不評率が高いルールや確信度の低い指摘は自動抑制してノイズを徹底排除している。
+   誤検知（False Positive）が多いボットは開発者に無視されるようになり、最終的に通知を切られる。AutoCommenterは、規約（ベストプラクティス）ごとに信頼度の閾値を調整し、開発者からの評価を集めて、評価の低い規約の指摘を抑えている（Vijayvergiya et al., 2024）。
 2. **指摘だけでなく修正パッチ（Fix Suggestion）を提示する**:
-   「ここが間違っています」と指摘するだけのボットは開発者の認知負荷を高める。GitHubのSuggestion記法のように、「このように変更してください」というワンクリックで適用可能なコードパッチを提示することが、受容率（Click-through rate）を飛躍的に高める。
-3. **人間関係の摩擦ゼロ化**:
-   同僚からスタイルの細かな指摘を受けると心理的抵抗（「重箱の隅をつつかれている」感覚）が生じがちですが、ボットによる自動指摘であれば開発者は素直に受け入れる。人間の感情を消耗させないことこそが、自動化の最大の価値である。
+   この原則は、AutoCommenterとは別の関連研究であるML-suggested edits（Froemmgen et al., 2024）が示したものである。「ここが間違っています」と指摘するだけのボットは開発者の認知負荷を高める。GitHubのSuggestion記法のように、ワンクリックで適用できる修正案を添えると、指摘が受け入れられやすくなる。
+3. **人間関係の摩擦を減らす**:
+   同僚からスタイルの細かな指摘を受けると心理的抵抗（「重箱の隅をつつかれている」感覚）が生じがちだが、ボットによる自動指摘であれば受け入れやすい。人間の感情を消耗させないことも、自動化の大きな価値である。
 
 ### オープンソース技術によるAutoCommenterパイプラインの再現
 
-Googleの社内基盤を持たない一般的な開発チームでも、現代のOSSツール（GitHub Actions、Reviewdog、Semgrep、LLM CLI）を組み合わせることで、AutoCommenterと同等のパイプラインを即座に構築できる。
+Googleの社内基盤を持たない一般的な開発チームでも、現代のOSSツール（GitHub Actions、Reviewdog、Semgrep、LLM CLI）を組み合わせることで、AutoCommenterと同じ考え方のパイプラインを組み立てられる。ただし、規約ごとの信頼度の調整や、開発者の評価を集める仕組みは、自分たちで作り込む必要がある。
 
 ```mermaid
 sequenceDiagram
@@ -285,7 +285,7 @@ GitHub CopilotやChatGPT、Claude等のLLMによるコード生成が一般化�
 ### 1. AI生成コードが抱える4大リスクの詳細分析
 
 - **存在しない架空パッケージのインポート（Package Hallucination）**:
-  LLMは時に、実在しないライブラリ名を幻覚（ハルシネーション）で出力する。攻撃者はこれを利用し、LLMがよく出力する架空パッケージ名と同名の悪意あるマルウェアをnpmやPyPIに事前登録しておく「AIパッケージ・タイポスクワッティング攻撃」を仕掛けている。開発者が気づかずに `npm install` や `pip install` を実行した瞬間、開発環境や本番サーバーが乗っ取られる。
+  LLMは時に、実在しないライブラリ名を幻覚（ハルシネーション）で出力する。攻撃者はこれを利用し、LLMがよく出力する架空パッケージ名と同名のマルウェアをnpmやPyPIに先回りして登録できる（スロップスクワッティング。Spracklen et al., 2025 は、LLMが提案するパッケージ名の一部が実在しないことを大規模に示している）。開発者が気づかずに `npm install` や `pip install` を実行した瞬間、開発環境や本番サーバーが乗っ取られる。
 - **非推奨・脆弱な古いAPIの学習バイアス（Stale Code Bias）**:
   学習データに含まれる古いコード例に引きずられ、すでに非推奨（Deprecated）となった暗号化アルゴリズム（MD5、SHA1）や、メモリリークを起こしやすい古い非同期記法を出力する傾向がある。
 - **文脈無視の局所最適コード（Context Blindness）**:
@@ -299,7 +299,7 @@ GitHub CopilotやChatGPT、Claude等のLLMによるコード生成が一般化�
 
 ```json
 {
-  "system_instruction": "あなたは極めて厳格なシニアセキュリティ・品質監査アーキテクトです。PRのDiffと依存関係定義を精査し、AI生成コード特有のリスクを監査してください。",
+  "system_instruction": "あなたはセキュリティと品質の監査を担当するレビュアーです。PRのDiffと依存関係定義を精査し、AI生成コード特有のリスクを監査してください。",
   "audit_rules": [
     {
       "rule_id": "AI-AUDIT-001",
@@ -341,31 +341,36 @@ GitHub CopilotやChatGPT、Claude等のLLMによるコード生成が一般化�
     REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
   run: |
+    # 上記プロンプトに差分を埋め込んでLLMへ送る自作スクリプト（呼び出し部分は12.5節の llm_advisory() と同じ構造）
     python3 tools/run_ai_code_audit.py --diff origin/main...HEAD > ai_findings.json
-    jq -r '.findings[] | "\(.file):\(.line):1: [\(.rule_id)] \(.reason)"' ai_findings.json | \
-      reviewdog -efm="%f:%l:%c: %m" -name="ai-assurance-auditor" -reporter=github-pr-review -fail-on-error=true
+    # findings が空でも失敗しないよう `[]?` を使う。LLMの指摘はソフトブロック（第2章）なので -fail-level=none
+    jq -r '.findings[]? | "\(.file):\(.line):1: [\(.rule_id)] \(.reason)"' ai_findings.json | \
+      reviewdog -efm="%f:%l:%c: %m" -name="ai-assurance-auditor" -reporter=github-pr-review -fail-level=none
 ```
 
-※実運用上の注意点として、LLMのAPIキー（`GEMINI_API_KEY` 等）は必ずGitHub Encrypted Secretsで秘匿管理し、外部フォークからのPR（`pull_request_target`）ではシークレットを露出させないこと。また大量のPRが同時実行された際のAPIレートリミット（HTTP 429）対策として、指数バックオフ（Exponential Backoff）によるリトライと差分トークン長の上限カット（例：最大30,000文字まで）を実装しておくことが必須である。さらに上記の `jq` パイプ連携では、指摘が0件（空配列）の際にエラーとならないよう `jq -r '.findings[]? | ...'`（オプショナル演算子 `?`）を指定する。また導入初期は `-fail-on-error=false`（警告のみ）で運用し、プロンプトの精度が安定してから `true` に切り替えると安全である。
+※実運用上の注意点として、LLMのAPIキー（`GEMINI_API_KEY` 等）は必ずGitHub Encrypted Secretsで秘匿管理し、外部フォークからのPRにはシークレットを渡さないこと（`pull_request_target` イベントでPRのコードを実行しない）。また大量のPRが同時実行された際のAPIレートリミット（HTTP 429）対策として、指数バックオフ（Exponential Backoff）によるリトライと差分トークン長の上限カット（例：最大30,000文字まで）を実装しておくことが必須である。なお、LLMの指摘でマージを機械的に止めることはしない（第2章「LLMの判定の扱い」）。インラインコメントとして人に見せ、必要なら `needs-human-review` ラベルで人の判断を求める。
 
 ### 3. 実践：Pythonによる新規依存パッケージ自動検証スクリプト
 
-CI環境で実行し、PR差分から新規追加されたパッケージを抽出し、PyPI公式APIと照合する確証スクリプトである。
+CI環境で実行し、引数で受け取ったパッケージ名（PR差分の `requirements*.txt` や `pyproject.toml` の追加行から抽出して渡す）をPyPI公式APIと照合する確証スクリプトである。npmを使う場合は、同じ考え方で `https://registry.npmjs.org/<name>` と `api.npmjs.org/downloads` を照合する。
 
 スロップスクワッティングは、AIがよく捏造する架空のパッケージ名を、攻撃者が先に登録しておく攻撃である。したがって「PyPIに存在するか」を確かめるだけでは、守りたい攻撃をそのまま通してしまう。以下の実装では、存在確認に加えて、初回公開からの経過日数、公開バージョン数、直近のダウンロード数を確認し、実績の乏しいパッケージは人による出自確認に回す。なお、これらは実績の目安であり、正当な新しいパッケージを導入する場合は、人が確認したうえで許可リストに登録する運用と組み合わせる。
 
 ```python
 # tools/verify_package_authenticity.py
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
-from datetime import UTC, datetime
+from datetime import UTC, datetime  # Python 3.11以降
 
 # 「存在するか」だけでは不十分。攻撃者は架空名を先に登録しておくため、実績も確認する。
 MIN_AGE_DAYS = 90             # 初回公開からの経過日数
 MIN_RELEASES = 3              # 公開されたバージョン数
 MIN_MONTHLY_DOWNLOADS = 1000  # 直近1か月のダウンロード数
+# 人が出自を確認して許可したパッケージ（カンマ区切り）。新しい正当なパッケージはここに登録する
+ALLOWLIST = {p.strip().lower() for p in os.environ.get("PACKAGE_ALLOWLIST", "").split(",") if p.strip()}
 
 
 def fetch_json(url: str) -> dict | None:
@@ -414,6 +419,9 @@ if __name__ == "__main__":
 
     failed = False
     for pkg in packages:
+        if pkg.lower() in ALLOWLIST:
+            print(f"[OK] {pkg}（許可リスト登録済み）")
+            continue
         try:
             problems = verify_pypi_package(pkg)
         except (urllib.error.URLError, TimeoutError) as exc:
@@ -439,7 +447,7 @@ if __name__ == "__main__":
 2. **AIレビューコメントへの真摯な向き合い方**:
    CIで自動投稿されるAIの指摘事項（Reviewdog等）を単に無視して手動マージする行為（Bypass）を禁止する。AIの指摘が誤検知（False Positive）であると判断した場合は、該当するルールIDを指定してリポジトリの除外設定（Ignore list）を更新するか、理由をPRコメントに明記する運用を義務付ける。
 3. **継続的なプロンプトとルールセットの改善サイクル**:
-   本番障害が発生した際、ポストモーテム（Post-mortem）の一環として「なぜ既存の静的解析やAIレビューパイプラインをすり抜けたのか」を必ず検証する。検知漏れとなったパターンをSemgrepのカスタムルールやAI確証プロンプトに即座に追加し、同一パターンの再発を二度と許さない自動化防護壁を強化し続ける。
+   本番障害が発生した際、ポストモーテム（Post-mortem）の一環として「なぜ既存の静的解析やAIレビューパイプラインをすり抜けたのか」を必ず検証する。検知漏れとなったパターンをSemgrepのカスタムルールやAI確証プロンプトに即座に追加し、同じパターンの再発を防ぐ自動化の防護壁を強化し続ける。
 
 ---
 

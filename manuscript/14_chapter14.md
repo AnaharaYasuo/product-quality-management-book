@@ -44,7 +44,7 @@ flowchart TD
 
 ---
 
-## 14.2 外部依存の完全隔離：TestcontainersとWireMockによる決定論的テスト環境
+## 14.2 外部依存の隔離：TestcontainersとWireMockによる決定論的テスト環境
 
 「共有テストDB」はフレーキーテストと環境不整合の最大の温床である。開発者Aのテストが投入したレコードを開発者Bのテストが変更し、ランダムにアサーションが失敗する光景は日常茶飯事である。テスト環境は「テストごとに独立して破棄・再生される決定論的な使い捨て環境」でなければならない。
 
@@ -161,6 +161,8 @@ UIの大規模リニューアルやデザインシステムの刷新時、どれ
 
 この作業を自律型AIに代行させるのが「自己修復テスト（Self-Healing E2E）」である。
 
+> **データ送信の注意**：この節のスクリプトは、画面のDOMスナップショットを外部のLLM APIへ送信する。テスト環境の画面であっても、氏名やメールアドレスなどの値が含まれることがある。第2章「外部LLMへのデータ送信ポリシー」に沿って、送信前にマスキングすること。
+
 ```mermaid
 flowchart TD
     A["Playwrightテスト実行"] --> B{"セレクタ解決失敗 (TimeoutError)"}
@@ -174,18 +176,20 @@ flowchart TD
 
 ### Self-Healing修正スクリプトの実装例
 
-（※なお、14.3節のE2Eテスト本体はフロントエンド標準のTypeScript/Playwrightで記述していますが、以下のCI横断ユーティリティスクリプトは本書の共通基盤ポリシーに従い、標準ライブラリのみで環境非依存に動作するPythonで記述している。TypeScriptプロジェクト単体で完結させる場合は、Playwrightのカスタムレポーター `Reporter.onTestEnd` 内でNode.jsの `fetch` を用いて同等のLLM呼び出しを実装できる。）
+（※なお、14.3節のE2Eテスト本体はフロントエンド標準のTypeScript/Playwrightで記述しているが、以下のCI横断ユーティリティスクリプトは本書の共通基盤ポリシーに従い、標準ライブラリのみで環境非依存に動作するPythonで記述している。TypeScriptプロジェクト単体で完結させる場合は、Playwrightのカスタムレポーター `Reporter.onTestEnd` 内でNode.jsの `fetch` を用いて同等のLLM呼び出しを実装できる。）
 
 ```python
 # tools/self_healing_locator.py
 import os
 import json
+import urllib.error
 import urllib.request
 
-def repair_broken_locator(broken_locator, page_dom_snippet, target_intent):
+def repair_broken_locator(broken_locator, page_dom_snippet, target_intent) -> dict:
+    """修復案を {"new_locator": str | None, "confidence": float} で返す。修復できないときは new_locator を None にする。"""
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        return broken_locator
+        return {"new_locator": None, "confidence": 0.0, "reason": "GEMINI_API_KEY 未設定"}
 
     prompt = (
         "あなたはE2Eテスト修復のスペシャリストです。\n"
@@ -207,10 +211,13 @@ def repair_broken_locator(broken_locator, page_dom_snippet, target_intent):
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        res = json.loads(resp.read().decode("utf-8"))
-        text = res["candidates"][0]["content"]["parts"][0]["text"]
-        return json.loads(text)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
+    except (urllib.error.URLError, KeyError, IndexError, json.JSONDecodeError, TimeoutError) as exc:
+        # 修復できなかったことを返す。テストは赤のまま残し、人が原因を確かめる
+        return {"new_locator": None, "confidence": 0.0, "reason": f"API障害: {exc}"}
 
 
 if __name__ == "__main__":
@@ -222,7 +229,7 @@ if __name__ == "__main__":
     print(f"Healed locator result: {healed}")
 ```
 
-※大規模SPAにおけるDOM肥大化とトークン上限への対策：現代のReactやNext.js等で構築された画面の `page.content()`（HTML全文）は容易に数十万文字に達し、そのままプロンプトに投入するとコンテキスト長の制限超過やAPIコストの高騰、推論精度の低下を招く。実務で `page_dom_snippet` を抽出する際は、`<script>` や `<style>`、`<svg>`、Base64画像、冗長なCSSクラス属性をBeautifulSoup等で事前にストリップ（軽量化）する。あるいはPlaywrightの `page.locator('main').ariaSnapshot()`（ARIAツリーのスナップショット）を取得して渡すことで、トークン量を95%以上削減しつつ `getByRole` の推論精度を大きく高められる。
+※大規模SPAにおけるDOM肥大化とトークン上限への対策：現代のReactやNext.js等で構築された画面の `page.content()`（HTML全文）は容易に数十万文字に達し、そのままプロンプトに投入するとコンテキスト長の制限超過やAPIコストの高騰、推論精度の低下を招く。実務で `page_dom_snippet` を抽出する際は、`<script>` や `<style>`、`<svg>`、Base64画像、冗長なCSSクラス属性をBeautifulSoup等で事前にストリップ（軽量化）する。あるいはPlaywrightの `page.locator('main').ariaSnapshot()`（ARIAツリーのスナップショット）を取得して渡すことで、トークン量を大きく削減しつつ `getByRole` の推論精度を高められる。
 
 ### 自己修復テストにおける「誤修復の自動マージ」を防ぐHuman-in-the-Loopガードレール
 
@@ -231,7 +238,7 @@ LLMによるセレクタ自己修復を運用する際、絶対に犯しては�
 したがって、Self-Healingエンジンは以下の厳格なガードレール（Human-in-the-Loop）の下で運用しなければならない。
 
 1. **メインCIは必ず一度Failさせる**: セレクタ解決に失敗した時点で、当該PRのCI自体は決定論的に失敗（Red）させる。
-2. **別ブランチへの修復PR自動起票**: AIが推論した新ロケータ（確信度 `confidence >= 0.90` のものに限る）は、本流へ直接コミットしてはならない。代わりに `fix/self-heal-locator-xxx` という修正提案PRを自動起票し、変更前後のスクリーンショット差分と選択根拠をPR本文に添付する。
+2. **別ブランチへの修復PR自動起票**: AIが推論した新ロケータ（確信度 `confidence >= 0.90` のものに限る。ただしLLMが自己申告する確信度は校正されていないため、足切りの目安にとどめる）は、本流へ直接コミットしてはならない。代わりに `fix/self-heal-locator-xxx` という修正提案PRを自動起票し、変更前後のスクリーンショット差分と選択根拠をPR本文に添付する。
 3. **人間の1クリック承認**: 開発者がPR上で「UIデザインの変更に伴う正当なロケータ更新である」ことを目視確認し、Approveしたときのみ本流へマージする。これにより、保守工数を大幅に削減しつつ、AIの暴走によるテストの骨抜きを構造的に防止できる。
 
 ---
@@ -247,6 +254,8 @@ LLMによるセレクタ自己修復を運用する際、絶対に犯しては�
 | **Small Test** | 50ミリ秒以内 | 60秒以内（並列） | 0.00%（完全決定論） | 0回（リトライ禁止） |
 | **Medium Test** | 2秒以内 | 5分以内（コンテナ並列） | 0.1%未満 | 最大1回（CI上のみ） |
 | **Large (E2E)** | 30秒以内 | 15分以内（並列シャード） | 0.5%未満 | 最大1回（隔離再試行） |
+
+※表の時間は本書の目安である。Googleの規模分類（Small/Medium/Large）は、主に実行環境の制約（単一プロセス、単一マシン、複数マシン）で定義されており、時間の上限はタイムアウトの既定値として別に定められている。
 
 - **マージブロック制約**: CIパイプラインにおいて、SmallおよびMediumテストの失敗は1件たりとも許容されない（Pass率 100%）。Largeテストのリトライ成功時であっても、Flakyフラグを自動起票して技術的負債として追跡する。
 

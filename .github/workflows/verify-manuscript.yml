@@ -16,6 +16,10 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # 本文のスニペット（19.3/12.5/22.5）は origin/main との差分を取れないと fail-closed で止まる。
+          # スモーク実行で本文どおりに動かすため、履歴ごと取得する
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
@@ -31,7 +35,7 @@ jobs:
         run: |
           npm install -g markdownlint-cli textlint textlint-rule-preset-ja-technical-writing textlint-rule-prh
           python -m pip install --upgrade pip
-          pip install pyyaml playwright ruff pytest pydantic hypothesis
+          pip install pyyaml playwright ruff pytest pydantic hypothesis jsonschema
           playwright install chromium
 
       - name: Run Markdownlint
@@ -86,7 +90,7 @@ jobs:
 
       - name: Build EPUB with Pandoc
         run: |
-          pandoc -o test-build.epub manuscript/metadata.yaml $(ls manuscript/*.md | sort) --css=manuscript/style.css
+          pandoc -o test-build.epub manuscript/metadata.yaml $(ls manuscript/*.md | sort) --toc --toc-depth=2 --lua-filter=tools/pandoc/parts.lua --css=manuscript/style.css
 
       - name: Run EPUBCheck (W3C Validator)
         run: |

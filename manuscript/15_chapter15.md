@@ -34,7 +34,7 @@ flowchart LR
 - **デプロイ（Deploy）**: 新しいコードやアーティファクトを本番サーバーやKubernetes Podに配置し、ヘルスチェックを通過させる行為。この時点ではフィーチャーフラグにより新機能は非活性化されており、一般ユーザーには1ビットの影響も及ばない。平日昼間に1日何十回でも安全に実行可能である。
 - **リリース（Release）**: フィーチャーフラグを動的に切り替えることで、特定セグメントのユーザー（社内メンバー、ベータユーザー、1%のトラフィック）に対して新機能へのアクセスを段階的に解放するビジネス行為。
 
-この2つが分離された瞬間、深夜や休日に実施されていた「恐怖の本番デプロイ作業」は完全に消滅する。
+この2つが分離された瞬間、深夜や休日に実施されていた「恐怖の本番デプロイ作業」をなくせる。
 
 ---
 
@@ -44,7 +44,7 @@ flowchart LR
 
 ### 15.2.1 Argo Rolloutsによるメトリクス駆動自動ロールバック
 
-Kubernetesクラスタにおいて、新バージョン（Canary）へのトラフィック割り振りを1%から段階的に引き上げつつ、PrometheusやDatadogのメトリクス（エラー率・レイテンシ）を自動監視する設定例である。
+Kubernetesクラスタにおいて、新バージョン（Canary）へのトラフィック割り振りを5%から段階的に引き上げつつ、PrometheusやDatadogのメトリクス（エラー率・レイテンシ）を自動監視する設定例である。
 
 ```yaml
 # kubernetes/rollout.yaml
@@ -82,8 +82,10 @@ spec:
     - name: error-rate
       interval: 1m
       # 母数が少ない時間帯はクエリが空ベクトルを返す（下の最小母数ガード）。
-      # 空の結果は失敗ではなく「判定保留（inconclusive）」として扱う。
-      successCondition: len(result) == 0 || result[0] <= 0.01
+      # 空の結果は成功にも失敗にもせず「判定保留（inconclusive）」にする。
+      # （successCondition に len(result) == 0 を含めると、空の結果が「成功」と数えられ、
+      #   低トラフィックの時間帯に判定しないままカナリアが昇格してしまう）
+      successCondition: len(result) > 0 && result[0] <= 0.01
       failureCondition: len(result) > 0 && result[0] > 0.01
       failureLimit: 3
       inconclusiveLimit: 10
@@ -105,14 +107,14 @@ spec:
 
 - **`rollout.yaml` の `steps`（トラフィック制御）**: 新版（Canary）への比率をまず5%に切り替え（`setWeight: 5`）、10分間停止（`pause: { duration: 10m }`）して様子を見る段階的ステップである。
 - **`rollout.yaml` の `analysis`（監視の紐付け）**: ロールアウト進行中にバックグラウンドで常時呼び出す監視ルールとして、別ファイルの `templateName: success-rate` を指定している。
-- **`analysis-template.yaml` の `metrics`（合否判定と切戻し）**: Prometheusクエリを1分間隔（`interval: 1m`）で実行し、5xxエラー率が1%以下（`result[0] <= 0.01`）かを検査する。待機中にエラー率1%超が累計3回（`failureLimit: 3`）に達すると、Argo Rolloutsは `setWeight: 20` 以降を即時中断（Abort）する。そして人間が気付く前にトラフィックを旧安定版（Stable）へ100%引き戻し、カナリアPodを隔離する。
+- **`analysis-template.yaml` の `metrics`（合否判定と切戻し）**: Prometheusクエリを1分間隔（`interval: 1m`）で実行し、5xxエラー率が1%以下（`result[0] <= 0.01`）かを検査する。待機中にエラー率1%超の失敗が累計で3回（`failureLimit: 3`）を超えると（つまり4回目の失敗で）、Argo Rolloutsは `setWeight: 20` 以降を即時中断（Abort）する。そして人間が気付く前にトラフィックを旧安定版（Stable）へ100%引き戻し、カナリアPodを隔離する。
 
 ### 15.2.2 偽陽性（False Positive）による過剰ロールバックの防止とフラグ負債のクリーンアップ規律
 
 カナリア自動ロールバックを実運用に乗せる際、現場が直面する2つの落とし穴が「一時的なネットワーク瞬断や少数リクエスト時のスパイクによる偽陽性（誤ロールバック）」と「リリース完了後に放置されたフィーチャーフラグの負債化」である。これらを防ぐため、以下の2つの運用規律をパイプラインに組み込む。
 
 1. **最小リクエスト数閾値と複合条件による偽陽性抑制**:
-   深夜帯などで1分間のリクエスト総数がわずか5件しかない場合、たまたま1件の通信エラーが起きただけでエラー率が20%と算出され、不要なロールバックが発火してしまう。これを防ぐため、AnalysisTemplateのPrometheusクエリには必ず「最小母数ガード（例: `sum(rate(http_requests_total[1m])) > 10` かつエラー率 > 1%）」を設定する。さらに `interval: 1m` / `failureLimit: 3`（3分間連続で閾値超過した場合のみロールバック）という持続性条件を組み合わせることで、外形監視の瞬断等のノイズを大幅に抑えられる。15.2.1の `AnalysisTemplate` には、この最小母数ガードを `and on()` で組み込んでいる。トラフィックがゼロのときに `NaN` を失敗として数えないよう、空の結果を判定保留として扱う点も重要である。
+   深夜帯などで1分間のリクエスト総数がわずか5件しかない場合、たまたま1件の通信エラーが起きただけでエラー率が20%と算出され、不要なロールバックが発火してしまう。これを防ぐため、AnalysisTemplateのPrometheusクエリには必ず「最小母数ガード（例: `sum(rate(http_requests_total[1m])) > 10` かつエラー率 > 1%）」を設定する。さらに `interval: 1m` / `failureLimit: 3`（失敗が累計3回を超えた場合のみロールバック。連続である必要はない）という条件を組み合わせることで、外形監視の瞬断等のノイズを大幅に抑えられる。15.2.1の `AnalysisTemplate` には、この最小母数ガードを `and on()` で組み込んでいる。トラフィックがゼロのときに `NaN` を失敗として数えず、かといって成功とも数えないよう、空の結果を判定保留（inconclusive）にする点も重要である。判定保留が `inconclusiveLimit` を超えるとロールアウトは一時停止し、人の判断を待つ。
 2. **フィーチャーフラグのTTL（有効期限）と自動クリーンアップ**:
    100%全開リリースが完了したにもかかわらずコード内に `if (featureFlags.isEnabled("new-checkout"))` の分岐を残し続けると、フラグの組み合わせ爆発によってテスト不能な技術的負債（Flag Debt）が蓄積する。フラグ作成時にはメタデータとして `expires_at`（原則30日以内）を必須定義させ、100%ロールアウトから14日経過したフラグはCIのLinter（またはAIリファクタリングBot）が検知し、旧コードパスごと削除するPRを自動生成するライフサイクルを徹底する。
 
@@ -120,7 +122,7 @@ spec:
 
 ## 15.3 SREに学ぶSLI / SLO策定とエラーバジェットによる品質統制
 
-「品質は高ければ高いほどよい」という考え方は工学的に誤りである。100%の信頼性を達成するためのコストは指数関数的に増大し、イノベーションとデリバリースピードを完全に停止させる。SRE（Google発祥のSite Reliability Engineering）は、ユーザーが満足する品質境界を定量化する枠組みを提供した。
+「品質は高ければ高いほどよい」という考え方は工学的に誤りである。信頼性を100%に近づけるほどコストは急増し、デリバリーの速度を大きく損なう。SRE（Google発祥のSite Reliability Engineering）は、ユーザーが満足する品質境界を定量化する枠組みを提供した。
 
 ### 15.3.1 3大用語の定義
 
@@ -184,13 +186,35 @@ Google SREが提唱する「非難のないポストモーテム（Blameless Pos
 
 インシデント収束後のエンジニアは精神的にも肉体的にも疲弊し切っている。その状態で白紙のドキュメントからポストモーテムを作成するのは極めて重い負荷である。
 
-Slackのインシデント専用チャンネル（`#inc-20261108-payment`）の会話ログと、Datadog/OpenTelemetryのアラートログをAIに投入し、客観的なタイムラインとポストモーテムドラフトを数秒で自動生成するアーキテクチャを導入する。
+Slackのインシデント専用チャンネル（`#inc-20261108-payment`）の会話ログと、Datadog/OpenTelemetryのアラートログをAIに投入し、客観的なタイムラインとポストモーテムドラフトを短時間で自動生成するアーキテクチャを導入する。
+
+> **データ送信の注意**：この節のスクリプトは、Slackの会話ログと監視アラートを外部のLLM APIへ送信する。下の `sanitize_for_llm()` でマスキングしてから送ること。この関数は、本書でLLMにデータを送るほかのスクリプトでも共通部品として使う（第2章「外部LLMへのデータ送信ポリシー」）。
 
 ```python
 # tools/generate_postmortem_ai.py
 import os
 import json
+import re
+import urllib.error
 import urllib.request
+
+EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+SECRET = re.compile(r"(?i)\b(bearer|token|api[_-]?key|secret|password)\b[\s:=]+[\"']?[A-Za-z0-9_\-.]{8,}[\"']?")
+IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+PHONE = re.compile(r"\b0\d{1,4}-\d{1,4}-\d{3,4}\b")
+
+
+def sanitize_for_llm(text: str) -> str:
+    """外部LLMへ送る前の最低限のマスキング（本書共通の部品）。
+
+    氏名、顧客ID、注文IDなど組織固有の値は正規表現では拾いきれないため、
+    Microsoft Presidio などの検出器や、自組織のID形式に合わせたパターンを追加する。
+    """
+    text = EMAIL.sub("[MASKED_EMAIL]", text)
+    text = SECRET.sub(lambda m: f"{m.group(1)}=[REDACTED_SECRET]", text)
+    text = IPV4.sub("[MASKED_IP]", text)
+    return PHONE.sub("[MASKED_PHONE]", text)
+
 
 def generate_postmortem_draft(slack_chat_history, monitoring_alerts):
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -200,7 +224,7 @@ def generate_postmortem_draft(slack_chat_history, monitoring_alerts):
     system_prompt = (
         "あなたはSREインシデント指揮官およびテクニカルライターです。\n"
         "Slackのインシデント対応チャットログと監視アラートから、\n"
-        "Google SRE基準の完全な『非難のないポストモーテム（Blameless Postmortem）』ドラフトを生成してください。\n\n"
+        "Google SREの考え方に沿った『非難のないポストモーテム（Blameless Postmortem）』のドラフトを生成してください。\n\n"
         "【必須セクション】\n"
         "1. エグゼクティブサマリー\n"
         "2. メトリクス影響（影響時間、影響ユーザー割合）\n"
@@ -210,7 +234,11 @@ def generate_postmortem_draft(slack_chat_history, monitoring_alerts):
         "※個人名への非難は一切排除し、プロセスとシステムの不全に焦点を当てること。"
     )
 
-    user_content = f"【Slack会話ログ】:\n{slack_chat_history}\n\n【監視アラートログ】:\n{monitoring_alerts}"
+    # 送信前に必ずマスキングする
+    user_content = (
+        f"【Slack会話ログ】:\n{sanitize_for_llm(slack_chat_history)}\n\n"
+        f"【監視アラートログ】:\n{sanitize_for_llm(monitoring_alerts)}"
+    )
     payload = {
         "contents": [{"role": "user", "parts": [{"text": f"{system_prompt}\n\n{user_content}"}]}]
     }
@@ -220,14 +248,12 @@ def generate_postmortem_draft(slack_chat_history, monitoring_alerts):
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        res = json.loads(resp.read().decode("utf-8"))
-        return res["candidates"][0]["content"]["parts"][0]["text"]
-
-# ※LLM送信前のPIIサニタイズ前処理スニペット例（正規表現または Microsoft Presidio AnalyzerEngine の活用）
-# import re
-# sanitized_log = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[MASKED_EMAIL]', raw_slack_log)
-# sanitized_log = re.sub(r'(?i)(bearer|token|key)[\s:=]+["\']?[a-zA-Z0-9_\-\.]{16,}["\']?', r'\1=[REDACTED_SECRET]', sanitized_log)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            return res["candidates"][0]["content"]["parts"][0]["text"]
+    except (urllib.error.URLError, KeyError, IndexError, json.JSONDecodeError, TimeoutError) as exc:
+        return f"ドラフトを生成できませんでした（API障害）: {exc}"
 
 
 if __name__ == "__main__":
@@ -238,7 +264,7 @@ if __name__ == "__main__":
     print(draft)
 ```
 
-※本番運用時のセキュリティ（PIIマスキング）とトークン長対策：インシデント対応中のSlackログや監視アラートには、障害調査の過程で貼り付けられた顧客のメールアドレス、IPアドレス、注文ID、あるいはセッショントークン等の機密情報（PII）が含まれている危険性が高い。外部のLLM APIへ送信する前段には、必ず正規表現やMicrosoft Presidio等を用いたサニタイズ処理（メールアドレスを `[MASKED_EMAIL]`、APIキー形式を `[REDACTED_SECRET]` へ置換するフィルタ）を挟むこと。また、数時間に及ぶ長大なチャットログがコンテキスト長上限を超過しないよう、ボットの定型通知を除外し「アラート発火前後およびコマンド実行・意思決定メッセージ」を中心に時系列サンプリングして投入する設計が推奨される。
+※本番運用時のセキュリティ（PIIマスキング）とトークン長対策：インシデント対応中のSlackログや監視アラートには、障害調査の過程で貼り付けられた顧客のメールアドレス、IPアドレス、注文ID、あるいはセッショントークン等の機密情報（PII）が含まれている危険性が高い。上の `sanitize_for_llm()` は、メールアドレス、APIキー形式の文字列、IPアドレス、電話番号を置換する最低限のフィルタである。注文IDや氏名など組織固有の値は、Microsoft Presidio等の検出器や自組織のID形式に合わせたパターンを追加して守ること。また、数時間に及ぶ長大なチャットログがコンテキスト長上限を超過しないよう、ボットの定型通知を除外し「アラート発火前後およびコマンド実行・意思決定メッセージ」を中心に時系列サンプリングして投入する設計が推奨される。
 
 ---
 

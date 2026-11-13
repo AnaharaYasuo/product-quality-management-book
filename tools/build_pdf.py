@@ -40,6 +40,149 @@ def normalize_kangxi_and_compat_cjk(text: str) -> str:
     return "".join(out)
 
 
+# 部（Part）の区切り（キー: その部の最初の章番号）。目次と本文の部扉の両方に使う
+PART_STARTS = {
+    1: "第I部：パラダイムシフトと二大成果物モデル",
+    3: "第II部：プロダクト成果物の検証・レビュー・監査",
+    10: "第III部：開発プロセス成果物のバリエーションと品質保証",
+    14: "第IV部：動的検証・シフトライト・セキュリティ品質",
+    17: "第V部：AIプロダクトと自律型AIエージェントの品質保証",
+    20: "第VI部：組織変革・カルチャーと品質の未来",
+    22: "第VII部：品質のトレードオフ・倫理・現場のリアリズム",
+}
+
+# PDFのテキスト層で、統合漢字・一般的な記号へ戻すべき文字
+_SUSPECT_RANGES = ((0x2E80, 0x2FDF), (0xF900, 0xFAFF), (0xFB00, 0xFB06))
+
+
+# CJK部首補助（U+2E80..U+2EFF）の多くはNFKCで統合漢字に戻らないため、明示的に対応付ける
+# （Unicode の EquivalentUnifiedIdeograph.txt に基づく、日本語で使う字の抜粋）
+_RADICAL_SUPPLEMENT = {
+    0x2E9F: "母", 0x2EA0: "民", 0x2EC4: "西", 0x2ECC: "辶", 0x2ED1: "長", 0x2ED8: "青",
+    0x2EDD: "食", 0x2EE9: "黄", 0x2EEB: "斉", 0x2EED: "歯", 0x2EEF: "竜", 0x2EF2: "亀",
+}
+
+
+def _map_text_layer_char(ch: str) -> str:
+    cp = ord(ch)
+    if cp == 0x2027:  # HYPHENATION POINT → 中黒（同じ字形のため誤って写像される）
+        return "\u30FB"
+    if cp in _RADICAL_SUPPLEMENT:
+        return _RADICAL_SUPPLEMENT[cp]
+    if any(lo <= cp <= hi for lo, hi in _SUSPECT_RANGES):
+        return unicodedata.normalize("NFKC", ch)
+    return ch
+
+
+def _fix_dst_hex(hexstr: str) -> str:
+    try:
+        text = bytes.fromhex(hexstr).decode("utf-16-be", errors="surrogatepass")
+    except ValueError:
+        return hexstr
+    fixed = "".join(_map_text_layer_char(c) for c in text)
+    if fixed == text:
+        return hexstr
+    return fixed.encode("utf-16-be", errors="surrogatepass").hex().upper()
+
+
+def _fix_tounicode_cmap(data: str) -> tuple[str, bool]:
+    """ToUnicode CMap の写像先（Unicode側）だけを書き換える。写像元（グリフID）には触れない。"""
+    changed = False
+    extra: list[tuple[str, str]] = []
+
+    def bfchar_block(m: re.Match) -> str:
+        nonlocal changed
+
+        def pair(mm: re.Match) -> str:
+            nonlocal changed
+            new = _fix_dst_hex(mm.group(2))
+            if new != mm.group(2):
+                changed = True
+            return f"{mm.group(1)} <{new}>"
+
+        body = re.sub(r"(<[0-9A-Fa-f]+>)\s*<([0-9A-Fa-f]+)>", pair, m.group(2))
+        return m.group(1) + body + m.group(3)
+
+    def bfrange_block(body: str) -> str:
+        nonlocal changed
+        kept = []
+        for mm in re.finditer(r"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*(<[0-9A-Fa-f]+>|\[[^\]]*\])", body):
+            lo, hi, dst = int(mm.group(1), 16), int(mm.group(2), 16), mm.group(3)
+            width = len(mm.group(1))
+            if dst.startswith("["):
+                pairs = [(lo + i, h) for i, h in enumerate(re.findall(r"<([0-9A-Fa-f]+)>", dst))]
+            else:
+                base = bytes.fromhex(dst[1:-1]).decode("utf-16-be", errors="surrogatepass")
+                pairs = []
+                for i in range(hi - lo + 1):
+                    s = base[:-1] + chr(ord(base[-1]) + i)
+                    pairs.append((lo + i, s.encode("utf-16-be", errors="surrogatepass").hex().upper()))
+            if any(_fix_dst_hex(h) != h for _, h in pairs):
+                changed = True
+                extra.extend((f"{c:0{width}X}", _fix_dst_hex(h)) for c, h in pairs)
+            else:
+                kept.append(mm.group(0))
+        if not kept:
+            return ""
+        return f"{len(kept)} beginbfrange\n" + "\n".join(kept) + "\nendbfrange"
+
+    data = re.sub(r"(\d+\s+beginbfchar)(.*?)(endbfchar)", bfchar_block, data, flags=re.S)
+    data = re.sub(r"\d+\s+beginbfrange(.*?)endbfrange", lambda m: bfrange_block(m.group(1)), data, flags=re.S)
+    if extra:
+        blocks = []
+        for i in range(0, len(extra), 100):
+            chunk = extra[i:i + 100]
+            blocks.append(f"{len(chunk)} beginbfchar\n" + "\n".join(f"<{s}> <{d}>" for s, d in chunk) + "\nendbfchar")
+        data = data.replace("endcmap", "\n".join(blocks) + "\nendcmap", 1)
+    return data, changed
+
+
+def fix_pdf_text_layer(pdf_path: Path) -> int:
+    """PDFのテキスト層を修正する。
+
+    Chromium が Noto Sans CJK などで PDF を生成すると、ToUnicode CMap が統合漢字ではなく、
+    同じ字形を持つ康熙部首（例: U+2F6C「⽬」）や U+2027 を指すことがある。見た目は同じだが、
+    検索・コピー・読み上げが壊れる。写像先を統合漢字や中黒へ書き換え、修正したCMapの数を返す。
+    """
+    import pikepdf
+
+    fixed = 0
+    with pikepdf.open(pdf_path, allow_overwriting_input=True) as pdf:
+        seen = set()
+        for obj in pdf.objects:
+            if not isinstance(obj, pikepdf.Dictionary) or "/ToUnicode" not in obj:
+                continue
+            stream = obj.ToUnicode
+            key = stream.objgen
+            if key in seen:
+                continue
+            seen.add(key)
+            data, changed = _fix_tounicode_cmap(stream.read_bytes().decode("latin-1"))
+            if changed:
+                stream.write(data.encode("latin-1"))
+                fixed += 1
+        pdf.save(pdf_path)
+    return fixed
+
+
+def verify_pdf_text_layer(pdf_path: Path) -> None:
+    """生成後のPDFからテキストを抽出し、検索を壊す文字が残っていないことを確かめる。"""
+    from pypdf import PdfReader
+
+    text = "".join((p.extract_text() or "") for p in PdfReader(str(pdf_path)).pages)
+    bad = [c for c in text if c == "\u2027" or any(lo <= ord(c) <= hi for lo, hi in _SUSPECT_RANGES[:2])]
+    if bad:
+        sample = "".join(sorted(set(bad))[:20])
+        raise RuntimeError(f"Smoke test failed: PDF text layer has {len(bad)} Kangxi/compat/U+2027 char(s): {sample}")
+    for word in ("目次", "二大成果物", "決定論的アンカー"):
+        if word not in text:
+            raise RuntimeError(f"Smoke test failed: '{word}' is not searchable in the PDF text layer")
+    leaked_math = re.findall(r"\$[^\s$][^$\n]{0,40}\$", text)
+    if leaked_math:
+        print(f"  [WARN] '$...$' patterns in PDF text (check if unrendered math): {leaked_math[:5]}")
+    print("[Smoke Test] PDF text layer: no Kangxi/compat/U+2027 characters; key terms are searchable")
+
+
 def build_combined_html(repo_dir: Path, html_out: Path) -> int:
     md_files = sorted((repo_dir / "manuscript").glob("*.md"))
     style_css = (repo_dir / "manuscript" / "style.css").read_text(encoding="utf-8")
@@ -150,23 +293,20 @@ def build_combined_html(repo_dir: Path, html_out: Path) -> int:
             else:
                 html_body = html_body.replace(f"@@MERMAID_BLOCK_{m_idx}@@", replacement_html)
 
+        m_part = re.match(r"第(\d+)章", title_text)
+        if m_part and int(m_part.group(1)) in PART_STARTS:
+            part_no = int(m_part.group(1))
+            chapters_html.append(
+                f'<div class="part-page" id="part-{part_no:02d}"><div class="part-title">{PART_STARTS[part_no]}</div></div>'
+            )
         chapters_html.append(f'<section class="chapter-section" data-source="{f.name}">\n{html_body}\n</section>')
 
-    # 目次に部（Part）の区切りを表示する（キー: その部の最初の章番号）
-    part_starts = {
-        1: "第I部：パラダイムシフトと二大成果物モデル",
-        3: "第II部：プロダクト成果物の検証・レビュー・監査",
-        10: "第III部：開発プロセス成果物のバリエーションと品質保証",
-        14: "第IV部：動的検証・シフトライト・セキュリティ品質",
-        17: "第V部：AIプロダクトと自律型AIエージェントの品質保証",
-        20: "第VI部：組織変革・カルチャーと品質の未来",
-        22: "第VII部：品質のトレードオフ・倫理・現場のリアリズム",
-    }
     toc_html = ['<nav class="toc-page"><h1 class="toc-title">目次（Table of Contents）</h1><ul class="toc-root">']
     for ch_id, title_text, h2_list in toc_items:
         m_ch = re.match(r"第(\d+)章", title_text)
-        if m_ch and int(m_ch.group(1)) in part_starts:
-            toc_html.append(f'<li class="toc-part">{part_starts[int(m_ch.group(1))]}</li>')
+        if m_ch and int(m_ch.group(1)) in PART_STARTS:
+            part_no = int(m_ch.group(1))
+            toc_html.append(f'<li class="toc-part"><a href="#part-{part_no:02d}">{PART_STARTS[part_no]}</a></li>')
         toc_html.append(f'<li class="toc-h1"><a href="#{ch_id}">{title_text}</a>')
         if h2_list:
             toc_html.append('<ul class="toc-h2">')
@@ -252,6 +392,30 @@ body {{
   color: #1a3c5a;
   font-weight: bold;
   font-size: 11pt;
+}}
+
+.toc-part > a {{
+  color: #1a3c5a;
+  text-decoration: none;
+}}
+
+.part-page {{
+  page-break-before: always;
+  page-break-after: always;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 230mm;
+}}
+
+.part-page .part-title {{
+  font-size: 22pt;
+  font-weight: bold;
+  color: #1a3c5a;
+  border-top: 2px solid #2b5b84;
+  border-bottom: 2px solid #2b5b84;
+  padding: 16pt 8pt;
+  text-align: center;
 }}
 
 .toc-h1 {{
@@ -383,7 +547,7 @@ th {{
 <body>
   <div class="cover-page">
     <div class="book-title">プロダクト品質管理の実践ガイド</div>
-    <div class="book-subtitle">高品質なプロダクトを継続的に届けるための設計とプロセス<br>（AI時代のプロダクト・プロセス確証バイブル）</div>
+    <div class="book-subtitle">高品質なプロダクトを継続的に届けるための設計とプロセス</div>
     <div class="book-meta">
       <p>著者：Anahara Yasuo</p>
       <p>版数：第1版 第1刷（全7部・25章＋巻末付録）</p>
@@ -513,7 +677,12 @@ async def render_and_smoke_test_pdf(html_out: Path, pdf_out: Path, expected_merm
         pdf_size = pdf_out.stat().st_size
         if pdf_size < 500_000:
             raise RuntimeError(f"Smoke test failed: generated PDF is unexpectedly small ({pdf_size} bytes)")
-        print(f"PASSED: PDF built and verified at {pdf_out} ({pdf_size:,} bytes)")
+
+        # テキスト層の修正（康熙部首・U+2027 → 統合漢字・中黒）と検証
+        fixed = fix_pdf_text_layer(pdf_out)
+        print(f"[Text Layer] ToUnicode CMaps fixed: {fixed}")
+        verify_pdf_text_layer(pdf_out)
+        print(f"PASSED: PDF built and verified at {pdf_out} ({pdf_out.stat().st_size:,} bytes)")
 
 
 def main():
