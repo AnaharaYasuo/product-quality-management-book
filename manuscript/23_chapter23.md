@@ -28,10 +28,10 @@ flowchart TD
 
 1. **嘘カバレッジ（Assertion-Free Testing）**: テスト関数の中で対象メソッドを呼び出すだけで、戻り値や状態変化を `assert` しない。実行行数（Line Coverage）だけが稼がれ、バグ検知力はゼロ。
 2. **DoDノールック全チェック**: PRテンプレートのチェックボックス（`[x]`）を内容も見ずに全選択して送信する。形骸化したチェックリストの典型。
-3. **PR分割ハック（ベロシティ稼ぎ）**: 「PRサイズ上限400行」というルールに対し、1つの完結した機能を不自然に5つに分割し、単体ではビルドも通らないPRを乱立させて消化ポイントを偽装する。
+3. **PR分割ハック（ベロシティ稼ぎ）**: 「PRサイズ上限800行（400行で警告）」というルールに対し、1つの完結した機能を不自然に5つに分割し、単体ではビルドも通らないPRを乱立させて消化ポイントを偽装する。
 4. **バグの地下潜伏（Bug Hiding）**: 「バグ検出件数」や「残存不具合数」でペナルティを課されるため、開発者が軽微なバグをチケット起票せず、個人のローカルコミットでこっそり直して隠蔽する。
 
-メトリクスハックの根本原因は、現場の悪意ではなく「無理な目標に対する現場の生存本能」である。達成不可能な目標を課された人間は、生き残るために最も抵抗の少ない抜け道を探す。したがって、ハックを減らす唯一の道は、現場を取り締まることではなく、インセンティブ構造そのものを健全に再設計することである。
+メトリクスハックの根本原因は、現場の悪意ではなく「無理な目標に対する現場の生存本能」である。達成不可能な目標を課された人間は、生き残るために最も抵抗の少ない抜け道を探す。したがって、ハックを減らす根本的な道は、現場を取り締まることではなく、インセンティブ構造そのものを健全に再設計することである。
 
 ---
 
@@ -78,7 +78,7 @@ Paved Pathを具現化する組織モデルとして急速に台頭している�
 
 ## 23.3 ペアメトリクス（相殺指標）の導入原則
 
-メトリクスを運用する上での絶対の鉄則は、「単一の指標を単独で追わない」ことである。指標は必ず「互いに緊張関係（トレードオフ）にある相殺指標」とペアで計測されなければならない。
+メトリクスを運用する上での鉄則は、「単一の指標を単独で追わない」ことである。指標は必ず「互いに緊張関係（トレードオフ）にある相殺指標」とペアで計測されなければならない。
 
 ### 代表的なペアメトリクスの組み合わせ
 
@@ -124,7 +124,9 @@ flowchart TD
 
 ## 23.4 AI確証実践：形骸化したテストとハックを暴く「健全性アナライザー」
 
-人間レビュアーが「アサーションの存在しない空洞テスト」や「意味のないPR分割」を肉眼で見破るのは困難である。AST（抽象構文木）解析とLLMを組み合わせ、リポジトリに潜むメトリクスハックを自動検出するスクリプトをCIに配備する。
+人間レビュアーが「アサーションの存在しない空洞テスト」や「意味のないPR分割」を肉眼で見破るのは困難である。AST（抽象構文木）解析とLLMを組み合わせ、リポジトリに潜むメトリクスハックを自動検出するスクリプトをCIに配備する。マージを止めるのは決定論的なAST解析の結果だけとし、LLMによる意味的な検査は人への助言にとどめる（第2章「LLMの判定の扱い」）。
+
+> **データ送信の注意**：`--llm-audit` を指定すると、テストコードを外部のLLM APIへ送信する。第2章「外部LLMへのデータ送信ポリシー」に沿って、送信してよいコードかを確認すること。
 
 ### AST解析による空洞テストの自動摘発メカニズム
 
@@ -158,7 +160,8 @@ def audit_test_file(file_path):
 
     hollow_tests = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
+        # async def のテスト（pytest-asyncio など）も対象にする
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
             # 関数内の全構文をスキャンし、assert 文が存在するか確認
             has_assert = any(isinstance(n, ast.Assert) for n in ast.walk(node))
             # assertEqual / assert_called_once などの検証メソッド、および pytest.raises を検証として数える
@@ -172,6 +175,7 @@ def audit_semantic_mock_abuse_with_llm(test_code: str, api_key: str) -> dict:
     """ASTでは見抜けない『assert True』や『モック自身が返した固定値をそのままassertするだけの意味のないテスト』をLLMでセマンティック摘発"""
     import json
     import os
+    import urllib.error
     import urllib.request
     prompt = (
         "以下のテストコードを精査し、グッドハートの法則による『形骸化ハック』がないかJSONで判定してください。\n"
@@ -185,9 +189,12 @@ def audit_semantic_mock_abuse_with_llm(test_code: str, api_key: str) -> dict:
         data=json.dumps({"contents": [{"role": "user", "parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}).encode("utf-8"),
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        res = json.loads(resp.read().decode("utf-8"))
-        return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            return json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
+    except (urllib.error.URLError, KeyError, IndexError, json.JSONDecodeError, TimeoutError) as exc:
+        return {"is_hollow_hack": None, "reason": f"LLM検査を実施できませんでした: {exc}"}
 
 def main():
     import os
@@ -205,20 +212,21 @@ def main():
             # AST検査を通過したファイルに対し、CLIオプション --llm-audit 指定時はセマンティックモック偽装検査を実行
             with open(test_file, encoding="utf-8") as f:
                 verdict = audit_semantic_mock_abuse_with_llm(f.read(), api_key)
-            if verdict.get("is_hollow_hack"):
+            if verdict.get("is_hollow_hack") is not False:  # 指摘あり、または検査できなかった
                 semantic_hacks[test_file] = verdict.get("reason", "Semantic mock abuse detected")
 
-    if all_hollow or semantic_hacks:
-        if all_hollow:
-            print("❌ 嘘カバレッジ（アサーションなしテスト）を検出しました:")
-            for f, tests in all_hollow.items():
-                print(f"  {f}: {tests}")
-        if semantic_hacks:
-            print("❌ セマンティック形骸化ハック（トートロジー・恒真アサーション）を検出しました:")
-            for f, reason in semantic_hacks.items():
-                print(f"  {f}: {reason}")
+    if semantic_hacks:
+        # LLMの指摘は助言（ソフトブロック）。人がレビューで確認する
+        print("⚠️ LLMによる確認事項（needs-human-review）:")
+        for f, reason in semantic_hacks.items():
+            print(f"  {f}: {reason}")
+    if all_hollow:
+        # AST解析は決定論的なので、ここだけをハードブロックにする
+        print("❌ 嘘カバレッジ（アサーションなしテスト）を検出しました:")
+        for f, tests in all_hollow.items():
+            print(f"  {f}: {tests}")
         sys.exit(1)
-    print("✅ 全てのテスト関数に有効なアサーションが存在します。")
+    print("✅ 全てのテスト関数に検証（assert 等）が存在します。")
 
 if __name__ == "__main__":
     main()
@@ -236,7 +244,7 @@ if __name__ == "__main__":
 | :--- | :--- | :--- | :--- |
 | **アサーション健全性** | 空洞テスト率 0.0% | 該当なし | assert のないテストが1件でも存在（CI即遮断）。 |
 | **変異スコア乖離** | カバレッジとの乖離 <= 20% | 乖離 20〜35% | カバレッジ90%なのに変異スコア50%未満（嘘カバレッジ）。 |
-| **PR対話健全性** | 1PRあたり平均コメント数 >= 2 | 平均コメント数 1〜2 | コメント0件での即Approveが全体の50%超（形骸化）。 |
+| **PR対話健全性** | コメント0件の即Approve率と変更失敗率（CFR）をペアで観察し、どちらも悪化していない | 即Approve率だけが上昇傾向（四半期ごとにレビュー内容をサンプリングして確認） | 即Approve率の上昇とCFRの悪化が同時に起きている（形骸化）。コメント数をノルマにはしない |
 | **DoD実行健全性** | AI Gatekeeperによる乖離 0件 | 軽微な記述漏れ | チェックボックスと実際のGit差分に明らかな虚偽。 |
 
 ---

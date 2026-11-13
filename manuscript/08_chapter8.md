@@ -1,6 +1,6 @@
 # 第8章：インフラ・CI/CD成果物の検証（Shift-Left Infrastructure）
 
-クラウドネイティブ時代において、インフラストラクチャはデータセンターの物理ラックから、Gitリポジトリ上で管理されるテキストコード（Infrastructure as Code: IaC）へと完全に移行した。Terraform、Dockerコンテナ、Kubernetesマニフェスト、そしてCI/CDパイプライン定義（GitHub Actions等）そのものが、現代のシステムにおける極めてクリティカルな「成果物」である。
+クラウドネイティブ時代において、インフラストラクチャはデータセンターの物理ラックから、Gitリポジトリ上で管理されるテキストコード（Infrastructure as Code: IaC）への移行が進んだ。Terraform、Dockerコンテナ、Kubernetesマニフェスト、そしてCI/CDパイプライン定義（GitHub Actions等）そのものが、現代のシステムにおける極めてクリティカルな「成果物」である。
 インフラのコード化は、インフラの欠陥やセキュリティホール、過剰スペックによる予算爆発、そしてサプライチェーン攻撃の侵入経路までもが「コードとして混入する」ことを意味する。本番環境に適用（`terraform apply`）した後に発覚する構成ミスは、数千万円規模のクラウド請求書や全社的セキュリティインシデントに直結する。
 本章では、インフラ成果物をPR作成時点で徹底的に検証する「シフトレフト・インフラストラクチャ（Shift-Left Infrastructure）」の体系、セキュリティ・コスト・サプライチェーンの多層防御ゲート、そして生成AIを活用したIaC変更監査のアーキテクチャを詳解する。
 
@@ -29,7 +29,7 @@ flowchart TD
 IaCの品質検証においては、以下の観点を網羅的に監査する。
 
 - **セキュリティ境界の厳格性**:
-  セキュリティグループの全開放（`0.0.0.0/0`）やパブリックS3バケット、保存時・転送時の暗号化（KMS/TLS）の未設定を機械的に排除する。意図しないインターネット公開をゼロにする。
+  セキュリティグループの全開放（`0.0.0.0/0`）やパブリックS3バケット、保存時・転送時の暗号化（KMS/TLS）の未設定を機械的に排除する。意図しないインターネット公開を防ぐ。
 - **破壊的変更（Destructive Changes）の抑止**:
   予期せぬリソースの破棄・再作成（`forces replacement`）によるデータベースやストレージの消失リスクを未然に防ぐ。
 - **モジュール性とDRY原則**:
@@ -156,7 +156,7 @@ kube-linterやOpen Policy Agent（OPA / Conftest）を用いることで、以�
 
 ### 3. Terraformのセキュリティポリシー監査（Checkov / tfsec）
 
-Checkovを利用して、CISベンチマークやSOC2、PCI-DSSなどのコンプライアンス基準に抵触するリソース定義を機械的に弾く。以下は、S3バケットの暗号化とパブリックアクセス遮断を義務付けるCIステップ例である。
+Checkovを利用して、CISベンチマークやSOC2、PCI-DSSなどのコンプライアンス基準に抵触するリソース定義を機械的に弾く。以下は、Checkovの全ルールでTerraformを検査し、違反があればCIを失敗させるステップ例である。
 
 ```yaml
 # .github/workflows/iac-security.yml
@@ -169,12 +169,14 @@ jobs:
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       - name: Run Checkov
-        uses: bridgecrewio/checkov-action@c123980c248c32a99923d1eb6b9f113d8c69f619 # v12.2991.0 (SHA固定)
+        uses: bridgecrewio/checkov-action@d30b395b8cc3f3f135aca1724c3d3c245ff44c60 # v12.2991.0
         with:
           framework: terraform
           output_format: cli
           soft_fail: false # 違反があればビルド失敗
-          check: CKV_AWS_19,CKV_AWS_144 # 暗号化・レプリケーション必須
+          # `check:` を指定すると、そのルールだけしか実行されない点に注意。
+          # 全ルールで検査し、合意した例外だけを外すときは skip_check を使う
+          skip_check: CKV_AWS_144 # 例: クロスリージョンレプリケーションは要件外として除外
 ```
 
 ---
@@ -197,7 +199,7 @@ GitHub Actionsで `uses: actions/checkout@v4` のようにタグを指定する�
 ### 2. 長期保存APIキーの全廃とOIDCフェデレーションの導入
 
 AWSのアクセスキー（`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`）をGitHub Secretsに登録する運用は厳禁である。流出リスクが高く、ローテーションも困難だからである。
-GitHub Actionsとクラウドプロバイダ間を**OIDC（OpenID Connect）**で連携させ、パイプライン実行時にのみ有効な数分間の一時トークンを発行するアーキテクチャを標準とする。
+GitHub Actionsとクラウドプロバイダ間を**OIDC（OpenID Connect）**で連携させ、パイプライン実行時にだけ有効な一時認証情報（既定の有効期間は1時間で、`role-duration-seconds` で短縮できる）を発行するアーキテクチャを標準とする。
 
 以下は、AWS IAMロールをOIDCで一時取得するセキュアなGitHub Actions設定の実装例である。
 
@@ -218,7 +220,7 @@ jobs:
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@e3dd14a369e911a61421a84f968cb82600c0618f # v4.0.2
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
         with:
           role-to-assume: arn:aws:iam::123456789012:role/GitHubActionsWorkflowRole
           aws-region: ap-northeast-1
@@ -249,36 +251,58 @@ CI/CDパイプラインにおけるセキュリティの死角となりやすい
 flowchart TD
     A["開発者がTerraform変更をプッシュ"] --> B["Infracostがクラウド料金APIと照合"]
     B --> C["PRに月額コスト増減を自動コメント"]
-    C --> D{"月額増分が閾値（例: 100ドル）超過？"}
+    C --> D{"月額増分が閾値（例: 500ドル）超過？"}
     D -->|Yes| E["FinOps承認が必要（マージブロック）"]
     D -->|No| F["通常レビューへ通過"]
 ```
 
 ### 1. Infracostによる自動算出とマージガード
 
-PRの差分（`terraform plan`）を解析し、月額コストがどのように変動するかをPRコメントとして自動可視化する。急激なコスト増加（例: 月額500ドル以上の増加、または前月比30%以上の増大）を検知した場合は、FinOps担当者またはエンジニアリングマネージャーの明示的承認がない限りマージを禁止する。
+PRの差分（`terraform plan`）を解析し、月額コストがどのように変動するかをPRコメントとして自動可視化する。急激なコスト増加（例: 月額500ドルを超える増加）を検知した場合は、FinOps担当者またはエンジニアリングマネージャーの明示的承認（ここでは `finops-approved` ラベル）がない限りマージを止める。コストの算出は決定論的なので、ハードブロックにしてよい。
 
 ```yaml
 # Infracost GitHub Action設定例
 name: Infracost FinOps Gate
-on: [pull_request]
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   infracost:
     runs-on: ubuntu-latest
+    env:
+      MONTHLY_INCREASE_LIMIT_USD: "500"
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       - name: Setup Infracost
-        uses: infracost/actions/setup@6326cb5d2bb6fb29aa7da6cbb7f6b6c2c38f214f # v2.3.0 (SHA固定)
+        uses: infracost/actions/setup@e9d6e6cd65e168e76b0de50ff9957d2fe8bb1832 # v3.0.1
         with:
           api-key: ${{ secrets.INFRACOST_API_KEY }}
-      - name: Generate Cost Diff
+      - name: Generate Baseline from main
         run: |
-          infracost breakdown --path=terraform/ --format=json --out-file=/tmp/infracost.json
-          infracost diff --path=/tmp/infracost.json --format=json --out-file=/tmp/diff.json
-      - name: Post Infracost Comment & Check Threshold
+          git fetch --depth=1 origin main
+          git worktree add /tmp/base FETCH_HEAD
+          infracost breakdown --path=/tmp/base/terraform --format=json --out-file=/tmp/infracost-base.json
+      - name: Generate Cost Diff (PR vs main)
+        run: |
+          infracost diff --path=terraform/ --compare-to=/tmp/infracost-base.json \
+            --format=json --out-file=/tmp/diff.json
+      - name: Post Infracost Comment
         run: |
           infracost comment github --path=/tmp/diff.json --repo=$GITHUB_REPOSITORY --github-token=${{ secrets.GITHUB_TOKEN }} --pull-request=${{ github.event.pull_request.number }} --behavior=update
+      - name: Check Monthly Cost Threshold
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'finops-approved') }}
+        run: |
+          DIFF=$(jq -r '.diffTotalMonthlyCost // "0"' /tmp/diff.json)
+          echo "月額コストの増分: ${DIFF} USD（上限 ${MONTHLY_INCREASE_LIMIT_USD} USD）"
+          if awk -v d="$DIFF" -v l="$MONTHLY_INCREASE_LIMIT_USD" 'BEGIN { exit !(d > l) }'; then
+            echo "::error::月額コストの増分が上限を超えています。FinOps担当が確認し、finops-approved ラベルを付けてください。"
+            exit 1
+          fi
 ```
 
 ### 2. クラウドコスト急増を防ぐ3大FinOps原則
@@ -300,11 +324,11 @@ Terraformのコードレビューにおいて人間が最も見落としやす�
 ### 1. IAM過剰権限・セキュリティホールのAI自動監査
 
 インフラストラクチャにおけるIAM権限の最小化は、クラウドセキュリティにおける最大の難関である。開発者は利便性のために `Action: "*"` や `Resource: "*"` を設定しがちであり、人間のレビュアーも依存リソースの多さに圧倒されて見落とす傾向がある。
-LLMを用いたAI確証エージェントは、Terraformの差分と既存のインフラ環境モデルを照合し、過剰な権限スコープや露出したポート番号、暗号化欠落を瞬時に指摘する。
+LLMを用いたAI確証エージェントは、Terraformの差分と既存のインフラ環境モデルを照合し、過剰な権限スコープや露出したポート番号、暗号化欠落を指摘する。
 
 ```json
 {
-  "system_instruction": "あなたはクラウドアカウントの全権を統括するチーフクラウドセキュリティアーキテクトです。Terraformの変更差分から、セキュリティリスクと破壊的変更を検知してください。",
+  "system_instruction": "あなたはクラウドセキュリティを担当するレビュアーです。Terraformの変更差分から、セキュリティリスクと破壊的変更を検知してください。",
   "rules": [
     {
       "id": "SEC-IAM-001",
@@ -334,7 +358,7 @@ LLMを用いたAI確証エージェントは、Terraformの差分と既存のイ
 }
 ```
 
-上記のJSON監査プロンプトをGitHub Actionsから実行する際は、まず `terraform show -json tfplan.binary > plan.json` で差分を出力する。これをPythonスクリプトや `anthropics/claude-code-action` 等でLLMへ渡し、応答の `.status == "BLOCKED"` を `jq -e` で判定してCIの終了コードに連動させる。
+上記のJSON監査プロンプトをGitHub Actionsから実行する際は、まず `terraform show -json tfplan.binary > plan.json` で差分を出力する。これをPythonスクリプト等でLLMへ渡し、応答の `.status` が `BLOCKED` または `WARNING` のときは `needs-human-review` ラベルを付けて人の判断を求める。LLMの判定だけでマージは止めない（第2章「LLMの判定の扱い」）。データ消失につながる再作成を機械的に止めるのは、次の決定論的スクリプトの役割である。
 
 ### 2. 実践：PythonによるTerraform Plan破壊的変更検知スクリプト
 
@@ -347,12 +371,17 @@ import sys
 
 # データを保持するリソース型（完全一致で判定する。前方一致にすると
 # aws_s3_bucket_policy のようなデータを持たない付随リソースまで止めてしまう）
+# 自組織で使う型を追加すること（GCP/Azureのリソースも同様）
 STATEFUL_RESOURCE_TYPES = {
     "aws_db_instance",
     "aws_rds_cluster",
     "aws_s3_bucket",
     "aws_dynamodb_table",
     "aws_ebs_volume",
+    "aws_efs_file_system",
+    "aws_elasticache_replication_group",
+    "aws_docdb_cluster",
+    "aws_redshift_cluster",
 }
 
 
@@ -401,7 +430,7 @@ if __name__ == "__main__":
 
 ### 4. AI誤検知（ハルシネーション）時のフォールバックと人間による緊急オーバーライド手順
 
-LLMによるインフラ監査は強力ですが、確率的モデルである以上、正当な構成変更を「危険」と誤判定（False Positive）して緊急リリースを不当にブロックしてしまうリスクがある。実運用では、決定論的ツール（Checkovや `verify_destructive_changes.py`）の判定のみを絶対ブロックとする。一方、LLMによる文脈監査の指摘はデフォルトで「WARNING（またはOverride可能なソフトブロック）」とする二段構えのフォールバック設計を推奨する。万が一AI監査が誤検知でPRをブロックした場合は、PRに `override-ai-audit` ラベルを付与する。その上で、SREリードまたはセキュリティ責任者1名の明示的な承認（Approve）と「バイパス理由のコメント記載」を条件にCIゲートを強制突破できるエスケープハッチ（Break-Glass手順）を組み込んでおけば、安全性と運用の柔軟性を両立できる。
+LLMによるインフラ監査は強力だが、確率的モデルである以上、正当な構成変更を「危険」と誤判定（False Positive）して緊急リリースを不当にブロックしてしまうリスクがある。実運用では、決定論的ツール（Checkovや `verify_destructive_changes.py`）の判定のみを絶対ブロックとする。一方、LLMによる文脈監査の指摘はデフォルトで「WARNING（またはOverride可能なソフトブロック）」とする二段構えのフォールバック設計を推奨する。万が一AI監査が誤検知でPRをブロックした場合は、PRに `override-ai-audit` ラベルを付与する。その上で、SREリードまたはセキュリティ責任者1名の明示的な承認（Approve）と「バイパス理由のコメント記載」を条件にCIゲートを強制突破できるエスケープハッチ（Break-Glass手順）を組み込んでおけば、安全性と運用の柔軟性を両立できる。
 
 ---
 

@@ -120,7 +120,7 @@ module.exports = {
 
 GitHubのデフォルト機能では、PRテンプレートに記述された項目が空欄のまま送信されてもシステムは警告を発しない。これを放置すると、Issue番号の未記載、影響範囲の未入力、チェックボックスの無視が常態化する。
 
-これを防ぐため、GitHub Actions上でPR本文のMarkdown構文木を解析し、必須セクションの記入漏れを検出するCIワークフローを配備する。
+これを防ぐため、GitHub Actions上でPR本文の見出しを検査し、必須セクションの記入漏れを検出するCIワークフローを配備する。見出しの言い回しはチームごとに違うので、ここではキーワードで判定する（第7章・第11章のテンプレート例のどちらでも通る）。
 
 ```yaml
 # .github/workflows/lint-pr-description.yml
@@ -144,18 +144,17 @@ jobs:
               return;
             }
 
+            // 見出し行（## ...）だけを対象に、必須の観点がそろっているかをキーワードで判定する
+            const headings = body.split('\n').filter(l => l.startsWith('## ')).join('\n');
             const requiredSections = [
-              '## 概要',
-              '## 変更理由',
-              '## テスト・検証内容'
+              { name: '背景・目的', pattern: /背景|目的|Why/ },
+              { name: '変更内容', pattern: /変更内容|概要|What/ },
+              { name: 'テスト・動作確認', pattern: /テスト|動作確認|検証|Proof/ },
             ];
 
-            const missingSections = [];
-            for (const section of requiredSections) {
-              if (!body.includes(section)) {
-                missingSections.push(section);
-              }
-            }
+            const missingSections = requiredSections
+              .filter(s => !s.pattern.test(headings))
+              .map(s => s.name);
 
             if (missingSections.length > 0) {
               core.setFailed(`必須セクションが不足しています: ${missingSections.join(', ')}`);
@@ -195,9 +194,11 @@ if (totalLinesChanged > FAIL_CHANGED_LINES) {
   warn(`⚠️ このPRの変更行数は ${totalLinesChanged} 行です。400行を超えるとレビュー品質が低下しやすいため、分割を検討してください。`);
 }
 
-// 2. 実装コード変更時のテストコード同根チェック
+// 2. 実装コード変更時のテストコード同梱チェック
+// 'latest.py' や 'contest.py' をテストと誤認しないよう、ディレクトリ名とファイル名の規約で判定する
+const isTestFile = file => /(^|\/)(tests?|spec|__tests__)\/|[._-](test|spec)\.[jt]sx?$|(^|\/)test_[^/]+\.py$/.test(file);
 const hasAppChanges = allChangedFiles.some(file => file.startsWith('src/') || file.startsWith('lib/'));
-const hasTestChanges = allChangedFiles.some(file => file.includes('test') || file.includes('spec'));
+const hasTestChanges = allChangedFiles.some(isTestFile);
 
 if (hasAppChanges && !hasTestChanges) {
   warn('⚠️ プロダクションコードが変更されていますが、テストコード（tests/ または spec/）の変更が含まれていません。テストの追加または更新が必要です。');
@@ -209,11 +210,6 @@ if (hasAppChanges && !hasChangelog) {
   message('📝 ユーザーに影響する変更がある場合は、`CHANGELOG.md` への追記を忘れないでください。');
 }
 
-// 4. 原稿・マークダウンファイルのDoD静的検査
-const manuscriptFiles = allChangedFiles.filter(file => file.startsWith('manuscript/') && file.endsWith('.md'));
-for (const file of manuscriptFiles) {
-  message(`📖 原稿ファイル \`${file}\` が更新されました。Commercial DoD基準がCIで検証されます。`);
-}
 ```
 
 上記の `dangerfile.js` をGitHub Actions上で自動実行し、PRへ検証結果コメントを投稿するためのセットアップ手順は以下の通りである。
@@ -243,7 +239,7 @@ jobs:
         run: npx danger ci --failOnErrors=true
 ```
 
-※初回実行時のトラブルシューティング：近年のGitHub Actionsでは、リポジトリのデフォルト `GITHUB_TOKEN` 権限が読み取り専用（Read-only）に制限されているケースが多く見られる。そのまま `npx danger ci` を実行すると、`403 Resource not accessible by integration` エラーでコメント投稿に失敗するため注意されたい。上記のようにワークフロー内に `permissions: pull-requests: write` を明示することで、初回から確実に動作させることができる。また、PR変更行数の上限閾値（`MAX_CHANGED_LINES = 500`）は現場に応じた調整が有効である。初期構築期や自動生成コードが多い現場ではまず `800〜1,000行（Warnのみ）` から緩やかに始め、逆に決済コア等の高信頼性領域では `300行（超過時はFail）` に引き締めるなど、成熟度に応じたトレードオフ調整を行うこと。
+※初回実行時のトラブルシューティング：近年のGitHub Actionsでは、リポジトリのデフォルト `GITHUB_TOKEN` 権限が読み取り専用（Read-only）に制限されているケースが多く見られる。そのまま `npx danger ci` を実行すると、`403 Resource not accessible by integration` エラーでコメント投稿に失敗するため注意されたい。上記のようにワークフロー内に `permissions: pull-requests: write` を明示することで、初回から確実に動作させることができる。また、PR変更行数の閾値（`WARN_CHANGED_LINES` / `FAIL_CHANGED_LINES`）は、本書共通の400行／800行を出発点に、現場に応じて調整してよい。なお `additions + deletions` には自動生成ファイルの行数も含まれるため、ロックファイルや生成コードが多いリポジトリでは、それらを除いた行数で判定するのが望ましい（第2章）。初期構築期や自動生成コードが多い現場ではまず `800〜1,000行（Warnのみ）` から緩やかに始め、逆に決済コア等の高信頼性領域では `300行（超過時はFail）` に引き締めるなど、成熟度に応じたトレードオフ調整を行うこと。
 
 ---
 
@@ -288,23 +284,31 @@ import urllib.request
 NEEDS_HUMAN = "NEEDS_HUMAN_REVIEW"
 
 
+TEST_FILE = re.compile(r"(^|/)(tests?|spec|__tests__)/|[._-](test|spec)\.[jt]sx?$|(^|/)test_[^/]+\.py$")
+
+
 def get_changed_files() -> list[str]:
-    for base in ("origin/main...HEAD", "HEAD~1...HEAD"):  # 浅いクローン時は HEAD~1 にフォールバック
-        res = subprocess.run(
-            ["git", "diff", "--name-only", base], capture_output=True, text=True, encoding="utf-8", errors="replace", check=False
-        )
-        if res.returncode == 0:
-            return [f for f in res.stdout.splitlines() if f.strip()]
-    return []
+    # 浅いクローン（fetch-depth: 1）では origin/main が無く、差分を取れない。
+    # HEAD~1 に逃げると最後のコミットしか見ずに判定がずれるため、取れなければ止める
+    res = subprocess.run(
+        ["git", "diff", "--name-only", "origin/main...HEAD"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    )
+    if res.returncode != 0:
+        print("❌ origin/main との差分を取得できません（actions/checkout に fetch-depth: 0 を指定）。", file=sys.stderr)
+        sys.exit(2)
+    return [f for f in res.stdout.splitlines() if f.strip()]
 
 
 def deterministic_check(pr_body: str, files: list[str]) -> list[str]:
     """機械的に判定できる乖離だけを、ハードブロックの対象にする。"""
     errors = []
+    # テンプレートの項目名（「テストを追加」「ドキュメントを更新」）に一致したチェックだけを見る。
+    # 「テスト不要」のような別の項目まで拾わないよう、ラベルは具体的に書く
     checked = lambda label: re.search(rf"- \[[xX]\] .*{label}", pr_body) is not None  # noqa: E731
-    if checked("テスト") and not any("test" in f.lower() or "spec" in f.lower() for f in files):
+    if checked("テストを追加") and not any(TEST_FILE.search(f) for f in files):
         errors.append("「テスト追加済み」にチェックがありますが、テストファイルの変更がありません。")
-    if checked("ドキュメント") and not any(f.endswith(".md") or f.startswith("docs/") for f in files):
+    if checked("ドキュメントを更新") and not any(f.endswith(".md") or f.startswith("docs/") for f in files):
         errors.append("「ドキュメント更新済み」にチェックがありますが、ドキュメントの変更がありません。")
     return errors
 
