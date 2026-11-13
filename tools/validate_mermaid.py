@@ -23,6 +23,7 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 
 def extract_mermaid_blocks(target_files: List[Path]) -> List[Dict[str, Any]]:
     blocks = []
+    bracket_pairs = [("「", "」"), ("（", "）"), ("『", "』"), ("【", "】")]
     for f in target_files:
         text = f.read_text(encoding="utf-8")
         lines = text.splitlines()
@@ -36,12 +37,18 @@ def extract_mermaid_blocks(target_files: List[Path]) -> List[Dict[str, Any]]:
                 buf = []
             elif in_mermaid and line.strip() == "```":
                 in_mermaid = False
+                code = "\n".join(buf)
+                for ob, cb in bracket_pairs:
+                    if code.count(ob) != code.count(cb):
+                        raise RuntimeError(
+                            f"[Mermaid Syntax] Unbalanced brackets '{ob}{cb}' ({code.count(ob)} vs {code.count(cb)}) in {f.name}:{start_line}"
+                        )
                 blocks.append({
                     "file": str(f),
                     "filename": f.name,
                     "start_line": start_line,
                     "end_line": idx,
-                    "code": "\n".join(buf)
+                    "code": code
                 })
             elif in_mermaid:
                 buf.append(line)
