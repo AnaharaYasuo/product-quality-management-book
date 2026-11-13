@@ -78,6 +78,8 @@ kind: AnalysisTemplate
 metadata:
   name: success-rate
 spec:
+  args:
+    - name: service-name
   metrics:
     - name: error-rate
       interval: 1m
@@ -94,13 +96,13 @@ spec:
           address: http://prometheus.monitoring:9090
           query: |
             (
-              sum(rate(http_requests_total{status=~"5.*", service="payment-service"}[1m]))
+              sum(rate(http_requests_total{status=~"5.*", service="{{args.service-name}}"}[1m]))
               /
-              sum(rate(http_requests_total{service="payment-service"}[1m]))
+              sum(rate(http_requests_total{service="{{args.service-name}}"}[1m]))
             )
             and on()
             # 最小母数ガード：1分あたり600リクエスト（毎秒10件）未満なら判定しない
-            (sum(rate(http_requests_total{service="payment-service"}[1m])) > 10)
+            (sum(rate(http_requests_total{service="{{args.service-name}}"}[1m])) > 10)
 ```
 
 上記の2つのYAMLマニフェストにおける主要行の対応関係と連動フローは以下の通りである。

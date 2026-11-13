@@ -8,8 +8,8 @@ Markdownで執筆し、GitHub Actionsにより自動で多層品質ゲート検�
 詳細な章立てと各章のスコープは [docs/TABLE_OF_CONTENTS.md](docs/TABLE_OF_CONTENTS.md) を参照してください。
 
 - **第I部：パラダイムシフトと二大成果物モデル**（第1章〜第2章）
-- **第II部：【徹底実践】プロダクト成果物の検証・レビュー・監査**（第3章〜第9章）
-- **第III部：【徹底実践】開発プロセス成果物のバリエーションと品質保証**（第10章〜第13章）
+- **第II部：プロダクト成果物の検証・レビュー・監査**（第3章〜第9章）
+- **第III部：開発プロセス成果物のバリエーションと品質保証**（第10章〜第13章）
 - **第IV部：動的検証・シフトライト・セキュリティ品質**（第14章〜第16章）
 - **第V部：AIプロダクトと自律型AIエージェントの品質保証**（第17章〜第19章）
 - **第VI部：組織変革・カルチャーと品質の未来**（第20章〜第21章）
@@ -44,10 +44,18 @@ Markdownで執筆し、GitHub Actionsにより自動で多層品質ゲート検�
 │   ├── 00_intro.md                       # はじめに
 │   ├── 01_chapter1.md 〜 25_chapter25.md # 第1章〜第25章（本編）
 │   └── 99_afterword.md                   # おわりに ＆ 巻末付録
-├── tools/                                # 原稿品質監査・Linterスクリプト群
-│   ├── lint_manuscript.py                # 日本語表現・見出し階層・文長Linter
-│   ├── audit_book_dod.py                 # 商業技術書DoD（文字数・図解・コード・合否基準）監査
+├── tools/                                # 原稿品質監査・ビルド・Linterスクリプト群
+│   ├── run_all_gates.py                  # 全決定論的品質ゲート統合実行ランナー
+│   ├── lint_manuscript.py                # 日本語表現・見出し階層・用語契約・コードAST検査
+│   ├── audit_book_dod.py                 # 商業技術書DoD・部/章タイトル・相互参照監査
+│   ├── validate_mermaid.py               # 全75点のMermaid構文・実ブラウザSVG横幅検証
+│   ├── audit_technical_facts.py          # 一次情報知識ベース(RAG)・Ruff静的解析・動的実行検証
+│   ├── verify_book_consistency.py        # Actions SHA照合・閾値統一・データ送信注意検査
+│   ├── build_pdf.py                      # A4版PDF・KDP表紙PNG・EPUB用図解PNGビルド＆検証
+│   ├── verify_epub.py                    # 生成EPUBの構造・表紙・全図解画像同梱スモーク検証
 │   └── evaluate_chapter_editorial.py     # LLM-as-a-Judge 編集者レビュー評価エンジン
+├── tests/
+│   └── test_snippet_claims.py            # 掲載サンプルコードの主張検証テスト（pytest）
 ├── images/                               # 原稿内で使用する画像
 └── README.md
 ```

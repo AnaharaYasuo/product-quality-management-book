@@ -1,4 +1,4 @@
-# 第7章：ソースコード・成果物の検証と多層監査
+# 第7章：ソースコード・実装成果物の検証と多層監査
 
 現代のソフトウェア開発において、ソースコードは開発者が一文字ずつキーボードで打ち込むものから、Copilot等の生成AIやLLMエージェントが大量に生成・提案するものへと急速に変容しつつある。生成速度が10倍に加速した開発現場において、人間のコードレビューだけに頼る品質保証は限界を迎えつつある。
 レビュー担当者の疲弊（Reviewer Fatigue）、チェックの見落とし、スタイルや好みの議論によるPR（プルリクエスト）の長期滞留が日常化している。さらに、AIがもたらす幻覚（Hallucination）やタイポスクワッティング攻撃への懸念も増大している。これらに対処するためには、コードを「機械による静的解析・SAST」「AI確証パイプライン」「人間による本質的設計レビュー」の多層防壁で検証・監査するアーキテクチャが不可欠である。
@@ -157,14 +157,15 @@ if (modifiedLines > 800) {
   warn(`⚠️ PRの変更行数がやや大きめです（${modifiedLines}行）。入念なレビューが必要です。`);
 }
 
-// 2. PR説明文の充足度チェック
-if (pr.body.length < 50) {
+// 2. PR説明文の充足度チェック（未入力時は pr.body が null になるため空文字へフォールバック）
+if ((pr.body || '').trim().length < 50) {
   fail('📝 PRの概要・背景説明が短すぎます。変更理由、影響範囲、テスト手順を詳細に記載してください。');
 }
 
-// 3. テストコードの同封チェック
-const hasAppChanges = danger.git.modified_files.some(path => path.startsWith('src/'));
-const hasTestChanges = danger.git.modified_files.some(path => path.startsWith('tests/'));
+// 3. テストコードの同梱チェック（既存ファイルの変更だけでなく新規追加ファイルも対象にする）
+const changedFiles = [...danger.git.modified_files, ...danger.git.created_files];
+const hasAppChanges = changedFiles.some(path => path.startsWith('src/'));
+const hasTestChanges = changedFiles.some(path => path.startsWith('tests/'));
 
 if (hasAppChanges && !hasTestChanges) {
   warn('🧪 アプリケーションコードが変更されていますが、テストコード（tests/）の変更が含まれていません。テストの追加を検討してください。');
