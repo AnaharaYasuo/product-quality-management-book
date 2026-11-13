@@ -23,10 +23,12 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Pandoc, Japanese Fonts & Playwright (Resilient Direct Install)
+      - name: Install Pandoc, EPUBCheck, Japanese Fonts & Playwright (Resilient Direct Install)
         run: |
           wget -q https://github.com/jgm/pandoc/releases/download/3.1.11.1/pandoc-3.1.11.1-linux-amd64.tar.gz
           sudo tar xvzf pandoc-3.1.11.1-linux-amd64.tar.gz --strip-components 1 -C /usr/local
+          wget -q https://github.com/w3c/epubcheck/releases/download/v5.1.0/epubcheck-5.1.0.zip
+          unzip -q epubcheck-5.1.0.zip
           mkdir -p ~/.local/share/fonts
           wget -q -O ~/.local/share/fonts/NotoSansCJKjp-Regular.otf https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf
           wget -q -O ~/.local/share/fonts/NotoSansCJKjp-Bold.otf https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Bold.otf
@@ -52,15 +54,18 @@ jobs:
             echo "is_release=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build PDF, Cover PNG & Run E2E Smoke Verification (Mermaid SVG & 27 Chapters)
+      - name: Build PDF, KDP Cover PNG, Mermaid PNGs & Run E2E Smoke Verification
         run: |
           mkdir -p output
           python tools/build_pdf.py \
             --html-out "output/${{ steps.meta.outputs.html_filename }}" \
             --pdf-out "output/${{ steps.meta.outputs.pdf_filename }}" \
-            --cover-out "output/cover.png"
+            --cover-out "output/cover.png" \
+            --mermaid-img-dir "output/mermaid_images"
 
-      - name: Build EPUB
+      - name: Build EPUB with KDP Cover & Pre-rendered Mermaid Diagrams
+        env:
+          MERMAID_IMAGE_DIR: output/mermaid_images
         run: |
           mkdir -p output
           pandoc \
@@ -72,6 +77,11 @@ jobs:
             --epub-cover-image=output/cover.png \
             --lua-filter=tools/pandoc/parts.lua \
             --css=manuscript/style.css
+
+      - name: Validate EPUB (W3C EPUBCheck 5.1.0 & Deterministic EPUB Smoke Test)
+        run: |
+          java -jar epubcheck-5.1.0/epubcheck.jar "output/${{ steps.meta.outputs.epub_filename }}"
+          python tools/verify_epub.py "output/${{ steps.meta.outputs.epub_filename }}"
 
       - name: Generate SHA-256 Checksums (Supply Chain Provenance)
         run: |

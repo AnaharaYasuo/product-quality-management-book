@@ -13,7 +13,7 @@ import time
 import argparse
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 
 # Windowsのコンソール出力等のUnicodeEncodeError対策
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -125,13 +125,12 @@ def evaluate_with_llm(filename: str, content: str, api_key: str) -> Dict[str, An
     """Gemini APIを呼び出して評価を行う (gemini-3.5-flash-lite / gemini-3.1-flash-lite / gemini-flash-lite-latest)"""
     prompt = EDITORIAL_PROMPT_TEMPLATE.format(filename=filename, content=content)
 
-    # 優先モデルの探索順: 環境変数指定 -> gemini-3.5-flash-lite -> gemini-3.1-flash-lite -> gemini-flash-lite-latest
+    # 優先モデルの探索順: 環境変数指定 -> gemini-2.5-flash-lite -> gemini-3.1-flash-lite-preview -> gemini-2.5-flash -> gemini-2.0-flash
     env_model = os.environ.get("EDITORIAL_REVIEW_MODEL")
     candidate_models = [env_model] if env_model else [
-        "gemini-3.5-flash-lite",
-        "gemini-3.1-flash-lite",
-        "gemini-3.1-flash-lite-preview",
         "gemini-2.5-flash-lite",
+        "gemini-3.1-flash-lite-preview",
+        "gemini-2.5-flash",
         "gemini-2.0-flash",
     ]
 
@@ -203,7 +202,7 @@ def run_heuristic_mock_evaluation(filename: str, content: str) -> Dict[str, Any]
     char_count = len(content)
     has_mermaid = "```mermaid" in content
     code_block_count = content.count("```") // 2
-    has_checklist = "- [ ]" in content or "- [x]" in content
+    has_checklist = "☐" in content or "- [ ]" in content or "- [x]" in content
 
     # キーワード検出
     keywords = ["確証", "Assurance", "検証", "ガードレール", "アンチパターン", "メトリクス", "自動化", "テスト", "DORA", "ISO"]
