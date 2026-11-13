@@ -90,6 +90,17 @@ def verify_epub(epub_path: Path, expected_mermaids: int) -> None:
             if f"第{roman}部：" not in nav_txt:
                 raise RuntimeError(f"[EPUB-Smoke] Missing '第{roman}部：' in EPUB nav.xhtml")
 
+        # 2.5. スタイルシート（style.css）の検証
+        css_files = [n for n in names if n.endswith(".css")]
+        if not css_files:
+            raise RuntimeError("[EPUB-Smoke] Missing CSS stylesheet in EPUB archive")
+        for cf in css_files:
+            css_txt = zf.read(cf).decode("utf-8")
+            if "p {" in css_txt and "text-indent: 1em" in css_txt:
+                raise RuntimeError(f"[EPUB-Smoke] Harmful 'p {{ text-indent: 1em; }}' found in {cf} (corrupts titlepage, tables, lists)")
+            if ".mermaid-figure" not in css_txt:
+                raise RuntimeError(f"[EPUB-Smoke] Missing '.mermaid-figure' styling in {cf}")
+
         # 3. 全 XHTML の走査（未変換Mermaidゼロ・全図解画像実在・康熙部首ゼロ・奥付存在）
         xhtml_files = sorted(n for n in names if n.startswith("EPUB/text/") and n.endswith(".xhtml"))
         raw_mermaid_blocks = 0

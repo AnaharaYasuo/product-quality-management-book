@@ -86,6 +86,18 @@ TERMINOLOGY_CONTRACTS = [
         r"完全に粉砕|100%防ぐ|100%遮断|物理的に不可能|完全に根絶",
         "[Hyperbole-Contract] 非科学的・誇張的な断定表現（「完全に粉砕」「100%防ぐ」「100%遮断」「物理的に不可能」「完全に根絶」）が使用されています。工学的・定量的に正確な表現に修正してください。"
     ),
+    (
+        r"--only=production",
+        "[Deprecated-Flag] `npm ci --only=production` は非推奨です。現行標準の `npm ci --omit=dev` に修正してください。"
+    ),
+    (
+        r"インタフェース(?!ー)",
+        "[Katakana-Consistency] 本書の用語規律として「インタフェース」ではなく長音付きの「インターフェース」に統一してください。"
+    ),
+    (
+        r"ドライバ(?!ー)",
+        "[Katakana-Consistency] 本書の用語規律として「ドライバ」ではなく長音付きの「ドライバー」に統一してください。"
+    ),
 ]
 
 KANGXI_COMPAT_RE = re.compile(r"[\u2E80-\u2FDF\uF900-\uFAFF]")
