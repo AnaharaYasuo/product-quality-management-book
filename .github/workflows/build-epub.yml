@@ -52,6 +52,14 @@ jobs:
             echo "is_release=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Build PDF, Cover PNG & Run E2E Smoke Verification (Mermaid SVG & 27 Chapters)
+        run: |
+          mkdir -p output
+          python tools/build_pdf.py \
+            --html-out "output/${{ steps.meta.outputs.html_filename }}" \
+            --pdf-out "output/${{ steps.meta.outputs.pdf_filename }}" \
+            --cover-out "output/cover.png"
+
       - name: Build EPUB
         run: |
           mkdir -p output
@@ -61,14 +69,9 @@ jobs:
             -o "output/${{ steps.meta.outputs.epub_filename }}" \
             --toc \
             --toc-depth=2 \
+            --epub-cover-image=output/cover.png \
             --lua-filter=tools/pandoc/parts.lua \
             --css=manuscript/style.css
-
-      - name: Build PDF & Run E2E Smoke Verification (Mermaid SVG & 27 Chapters)
-        run: |
-          python tools/build_pdf.py \
-            --html-out "output/${{ steps.meta.outputs.html_filename }}" \
-            --pdf-out "output/${{ steps.meta.outputs.pdf_filename }}"
 
       - name: Generate SHA-256 Checksums (Supply Chain Provenance)
         run: |
