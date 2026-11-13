@@ -637,7 +637,7 @@ th {{
     return total_mermaid
 
 
-async def render_and_smoke_test_pdf(html_out: Path, pdf_out: Path, expected_mermaid_count: int):
+async def render_and_smoke_test_pdf(html_out: Path, pdf_out: Path, expected_mermaid_count: int, cover_out: Path | None = None):
     from playwright.async_api import async_playwright
 
     # 静的HTML検証：コードブロック内の見出し誤変換・康熙部首・未変換LaTeX数式の検査
@@ -734,6 +734,10 @@ async def render_and_smoke_test_pdf(html_out: Path, pdf_out: Path, expected_merm
             raise RuntimeError(f"Smoke test failed: {len(audit['leakedHeadings'])} code block(s) contain leaked <h1>/<h2> tags!")
 
         pdf_out.parent.mkdir(parents=True, exist_ok=True)
+        if cover_out is not None:
+            cover_out.parent.mkdir(parents=True, exist_ok=True)
+            await page.locator(".cover-page").screenshot(path=str(cover_out))
+            print(f"[Cover] Saved cover image at {cover_out}")
         await page.pdf(
             path=str(pdf_out),
             format="A4",
@@ -760,15 +764,17 @@ def main():
     parser = argparse.ArgumentParser(description="Build & E2E-verify full book HTML and PDF")
     parser.add_argument("--html-out", default="output/product-quality-management.html", help="Output HTML path")
     parser.add_argument("--pdf-out", default="output/product-quality-management.pdf", help="Output PDF path")
+    parser.add_argument("--cover-out", default="output/cover.png", help="Output cover PNG path")
     args = parser.parse_args()
 
     repo_dir = Path(__file__).resolve().parent.parent
     html_out = Path(args.html_out)
     pdf_out = Path(args.pdf_out)
+    cover_out = Path(args.cover_out) if args.cover_out else None
 
     print("=== Building Combined Book HTML & PDF with E2E Smoke Verification ===")
     expected_mermaid = build_combined_html(repo_dir, html_out)
-    asyncio.run(render_and_smoke_test_pdf(html_out.resolve(), pdf_out.resolve(), expected_mermaid))
+    asyncio.run(render_and_smoke_test_pdf(html_out.resolve(), pdf_out.resolve(), expected_mermaid, cover_out.resolve() if cover_out else None))
 
 
 if __name__ == "__main__":
