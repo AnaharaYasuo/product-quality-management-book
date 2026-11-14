@@ -48,7 +48,54 @@ function CodeBlock(el)
     error(string.format("[parts.lua] Missing pre-rendered Mermaid PNG for diagram #%d: %s", mermaid_idx, img_path))
   end
   fh:close()
-  local alt = string.format("図%d", mermaid_idx)
-  local img = pandoc.Image({ pandoc.Str(alt) }, img_path)
+
+  -- Mermaidコードから図の種類・サブグラフ名・ノードラベルを抽出し、詳細な代替テキストを生成する
+  local src = el.text or ""
+  local diagram_type = "ダイアグラム"
+  if src:match("^%s*flowchart") or src:match("^%s*graph") then
+    diagram_type = "フローチャート"
+  elseif src:match("^%s*sequenceDiagram") then
+    diagram_type = "シーケンス図"
+  elseif src:match("^%s*stateDiagram") then
+    diagram_type = "状態遷移図"
+  elseif src:match("^%s*classDiagram") then
+    diagram_type = "クラス図"
+  elseif src:match("^%s*erDiagram") then
+    diagram_type = "ER図"
+  elseif src:match("^%s*quadrantChart") then
+    diagram_type = "象限チャート"
+  elseif src:match("^%s*gitGraph") then
+    diagram_type = "Gitグラフ"
+  end
+
+  local labels = {}
+  local seen = {}
+  for lbl in src:gmatch('%["([^"]+)"%]') do
+    local clean = lbl:gsub("<br%s*/?>", " "):gsub("%s+", " "):match("^%s*(.-)%s*$")
+    if clean ~= "" and not seen[clean] then
+      seen[clean] = true
+      table.insert(labels, clean)
+      if #labels >= 8 then break end
+    end
+  end
+  if #labels == 0 then
+    for lbl in src:gmatch("%[([^%[%]\"]+)") do
+      local clean = lbl:gsub("<br%s*/?>", " "):gsub("%s+", " "):match("^%s*(.-)%s*$")
+      if clean ~= "" and not seen[clean] then
+        seen[clean] = true
+        table.insert(labels, clean)
+        if #labels >= 8 then break end
+      end
+    end
+  end
+
+  local alt
+  if #labels > 0 then
+    alt = string.format("図%d（%s）: %s", mermaid_idx, diagram_type, table.concat(labels, " / "))
+  else
+    alt = string.format("図%d（%s）: 構成・処理フロー図解", mermaid_idx, diagram_type)
+  end
+
+  local img = pandoc.Image({ pandoc.Str(alt) }, img_path, alt)
   return pandoc.Div({ pandoc.Plain({ img }) }, pandoc.Attr("", { "mermaid-figure" }))
 end
