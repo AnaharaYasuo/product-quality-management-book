@@ -237,6 +237,20 @@ def lint_markdown(file_path: str):
                     f"Line {idx}: [Style-Mix] 第1章〜第25章の地の文で敬体（です・ます調）が検出されました。常体（である調）に統一してください: {stripped[:80]}"
                 )
 
+        # 6.5. 商業出版・組版校正ルールの検査（かぎ括弧末尾の句点、全角英数、半角カナ、JIS外漢字）
+        if re.search(r"。(?=[」』])", line):
+            issues.append(
+                f"Line {idx}: [Punctuation-Quote] かぎ括弧直前に句点（。」）が含まれています。出版組版慣例に従い、句点を削除してください: {line[:60]}"
+            )
+        if re.search(r"[０-９Ａ-Ｚａ-ｚ]", line):
+            issues.append(
+                f"Line {idx}: [Typography-FullwidthAlpha] 全角英数字が含まれています。半角英数字に統一してください: {line[:60]}"
+            )
+        if re.search(r"[\uFF61-\uFF9F]", line):
+            issues.append(
+                f"Line {idx}: [Typography-HalfwidthKana] 半角カタカナが含まれています。全角カタカナに統一してください: {line[:60]}"
+            )
+
         # 7. 技術用語・概念契約 & 誤変換チェック
         #    断定表現の検査は「」内の引用（失敗談で引用する当時のプロンプト等）を除外して行う
         line_without_quotes = re.sub(r"「[^」]*」", "", line)
