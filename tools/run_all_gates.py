@@ -29,6 +29,7 @@ GATES = [
     ("Gate 4: Primary-Source Knowledge Base (RAG) & Ruff Embedded Code Audit", [sys.executable, "tools/audit_technical_facts.py"]),
     ("Gate 5: Snippet Claim Tests (samples behave as the text claims)", [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_snippet_claims.py"]),
     ("Gate 6: Book Consistency (Action SHA pins, thresholds, banned phrases, inline math)", [sys.executable, "tools/verify_book_consistency.py"]),
+    ("Gate 7: Content Quality, Antipattern/Remedy Pairing & Tradeoff Audit", [sys.executable, "tools/audit_content_completeness.py"]),
 ]
 
 
