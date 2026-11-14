@@ -31,12 +31,24 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Markdownlint & Python Dependencies
+      - name: Install Toolchain (Textlint, Markdownlint, CSpell & Python Dependencies)
         run: |
-          npm install -g markdownlint-cli
+          npm install -g markdownlint-cli cspell textlint textlint-rule-preset-ja-technical-writing textlint-rule-preset-ja-spacing textlint-rule-prh
           python -m pip install --upgrade pip
-          pip install pyyaml playwright ruff pytest pydantic hypothesis jsonschema
+          pip install pyyaml playwright ruff pytest pydantic hypothesis jsonschema yamllint
           playwright install chromium
+
+      - name: Run Yamllint (Workflow & Metadata Linter)
+        run: |
+          yamllint -c .yamllint.yaml .github/ manuscript/metadata.yaml
+
+      - name: Run CSpell (Technical Spell Checker)
+        run: |
+          cspell "manuscript/*.md" "README.md" --config ".cspell.json" --no-progress || true
+
+      - name: Run Textlint (Publishing Proofreading Standards)
+        run: |
+          textlint "manuscript/*.md" --config ".textlintrc.json" || true
 
       - name: Run Markdownlint
         run: |
