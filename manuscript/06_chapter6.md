@@ -40,7 +40,7 @@ flowchart TD
     CI1 --> CI2 --> CI3 --> CI4
 ```
 
-上図のLevel 3（Component）やLevel 4（Code）のCIマッピングでは、言語別のアーキテクチャ検証ツールを活用する。代表例としてJava/Kotlinの **ArchUnit**、Pythonの **import-linter（または pytest-archon）**、TypeScriptの **dependency-cruiser** が挙げられる。これにより、「Domain層のクラスがInfrastructure層のDBドライバを直接インポートしてはならない」といった依存方向ルールを、単体テストとして数ミリ秒で自動検証できる。さらにDI（依存性注入）コンテナ（Goの `wire`、Pythonの `dependency-injector`、TypeScriptの `tsyringe` 等）を導入する。これと静的型検査（`mypy --strict` / `tsc --noEmit`）を組み合わせることで、設計図と実装コードの乖離をコンパイル時点で機械的に阻止できる。
+上図のLevel 3（Component）やLevel 4（Code）のCIマッピングでは、言語別のアーキテクチャ検証ツールを活用する。代表例としてJava/Kotlinの **ArchUnit**、Pythonの **import-linter（または pytest-archon）**、TypeScriptの **dependency-cruiser** が挙げられる。これにより、「Domain層のクラスがInfrastructure層のDBドライバーを直接インポートしてはならない」といった依存方向ルールを、単体テストとして数ミリ秒で自動検証できる。さらにDI（依存性注入）コンテナ（Goの `wire`、Pythonの `dependency-injector`、TypeScriptの `tsyringe` 等）を導入する。これと静的型検査（`mypy --strict` / `tsc --noEmit`）を組み合わせることで、設計図と実装コードの乖離をコンパイル時点で機械的に阻止できる。
 
 ### 2. ADR（Architecture Decision Record：アーキテクチャ意思決定記録）
 
