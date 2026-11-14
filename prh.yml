@@ -1,0 +1,33 @@
+version: 2
+
+rules:
+  # 語尾の長音・表記ゆれの統一
+  - expected: ユーザー
+    patterns:
+      - /ユーザ(?!ー)/
+  - expected: サーバー
+    patterns:
+      - /サーバ(?!ー)/
+  - expected: インターフェース
+    patterns:
+      - /インタフェース(?!ー)/
+  - expected: ドライバー
+    patterns:
+      - /ドライバ(?!ー)/
+  - expected: コンピューター
+    patterns:
+      - /コンピュータ(?!ー)/
+
+  # 誤字・誤変換防止
+  - expected: ポストモーテム
+    pattern: ポストレモート
+  - expected: シミュレーション
+    pattern: シュミレーション
+  - expected: デプロイ
+    pattern: ディプロイ
+  - expected: 対症療法
+    pattern: 対称療法
+  - expected: 捕捉
+    patterns:
+      - /(?:例外|エラー|Exception|シグナル)を?補足/
+      - /Exception補足/
