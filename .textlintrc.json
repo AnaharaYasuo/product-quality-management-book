@@ -1,0 +1,30 @@
+{
+  "filters": {
+    "comments": true
+  },
+  "rules": {
+    "preset-ja-technical-writing": {
+      "sentence-length": {
+        "max": 150
+      },
+      "no-unpaired-layout-bracket": true,
+      "ja-no-mixed-period": {
+        "periodMark": "。"
+      },
+      "no-dropping-the-ra": true,
+      "no-double-negative-ja": true,
+      "max-kanji-continuous-len": {
+        "max": 8
+      }
+    },
+    "preset-ja-spacing": {
+      "ja-space-between-half-and-full-width": {
+        "space": "never"
+      },
+      "ja-no-space-around-parentheses": true
+    },
+    "prh": {
+      "rulePaths": ["prh.yml"]
+    }
+  }
+}
