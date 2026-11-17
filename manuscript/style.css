@@ -151,15 +151,17 @@ img {
 table {
   border-collapse: collapse;
   width: 100%;
-  margin: 1em 0;
-  font-size: 0.9em;
+  margin: 0.8em 0;
+  font-size: 0.78em;
+  line-height: 1.35;
 }
 
 th, td {
   border: 1px solid #cccccc;
-  padding: 6px 8px;
+  padding: 4px 5px;
   text-align: left;
   vertical-align: top;
+  overflow-wrap: anywhere;
 }
 
 th {
