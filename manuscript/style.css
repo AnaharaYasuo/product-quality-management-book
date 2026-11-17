@@ -1,9 +1,9 @@
 @charset "utf-8";
 
 body {
-  font-family: "Noto Sans CJK JP", "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
-  line-height: 1.8;
-  margin: 1.2em;
+  /* KDP/Kindle標準の日本語フォント・ユーザー設定（サイズ/行間/余白）を活かすため、font-familyと固定marginは指定しない */
+  line-height: 1.65;
+  margin: 0;
   padding: 0;
 }
 
@@ -79,9 +79,16 @@ h3 {
 }
 
 p {
-  margin-top: 0.65em;
-  margin-bottom: 0.65em;
+  margin-top: 0.6em;
+  margin-bottom: 0.6em;
   text-indent: 0;
+  text-align: left;
+  overflow-wrap: break-word;
+}
+
+li {
+  text-align: left;
+  overflow-wrap: break-word;
 }
 
 blockquote {
