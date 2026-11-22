@@ -67,14 +67,16 @@ section.part {
 }
 
 h1 {
-  font-size: 1.4em;
-  line-height: 1.25;
+  font-size: 1.35em;
+  line-height: 1.22;
   color: #1a3c5a;
   border-bottom: 2px solid #2b5b84;
-  padding-bottom: 0.25em;
-  margin-top: 1em;
-  margin-bottom: 0.6em;
+  padding-bottom: 0.2em;
+  margin-top: 0.5em;
+  margin-bottom: 0.45em;
   page-break-before: always;
+  page-break-after: avoid;
+  break-after: avoid;
 }
 
 h1.part {
@@ -95,6 +97,8 @@ h2 {
   padding-left: 0.45em;
   margin-top: 0.9em;
   margin-bottom: 0.35em;
+  page-break-after: avoid;
+  break-after: avoid;
 }
 
 h3 {
@@ -103,6 +107,14 @@ h3 {
   color: #2b5b84;
   margin-top: 0.75em;
   margin-bottom: 0.3em;
+  page-break-after: avoid;
+  break-after: avoid;
+}
+
+hr {
+  border: none;
+  border-top: 1px solid #d0d7de;
+  margin: 0.7em 0;
 }
 
 p {
