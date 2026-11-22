@@ -1,12 +1,33 @@
 @charset "utf-8";
 
 body {
-  /* KDP/Kindle標準の日本語フォント・余白設定を活かしつつ、技術書向けに情報密度と禁則処理を高めた設定 */
-  font-size: 0.85em;
-  line-height: 1.45;
+  /* KDP/Kindle標準の日本語フォント・余白設定を活かしつつ、スマホでも1ページの情報量を高める設定 */
+  font-size: 0.78em;
+  line-height: 1.38;
   line-break: strict;
   margin: 0;
   padding: 0;
+}
+
+/* 目次（nav#toc）：重複リスト番号を消し、インデントと行間を詰めて一覧性を向上 */
+nav#toc {
+  font-size: 0.78em;
+  line-height: 1.3;
+}
+
+nav#toc ol,
+nav#toc ul {
+  list-style: none;
+  padding-left: 0.9em;
+  margin: 0.1em 0;
+}
+
+nav#toc > ol {
+  padding-left: 0;
+}
+
+nav#toc li {
+  margin: 0.15em 0;
 }
 
 section.titlepage {
@@ -67,41 +88,46 @@ h1.part {
 }
 
 h2 {
-  font-size: 1.15em;
-  line-height: 1.25;
+  font-size: 1.12em;
+  line-height: 1.22;
   color: #1a3c5a;
-  border-left: 5px solid #2b5b84;
-  padding-left: 0.5em;
-  margin-top: 1.1em;
-  margin-bottom: 0.45em;
-}
-
-h3 {
-  font-size: 1.05em;
-  line-height: 1.25;
-  color: #2b5b84;
-  margin-top: 0.85em;
+  border-left: 4px solid #2b5b84;
+  padding-left: 0.45em;
+  margin-top: 0.9em;
   margin-bottom: 0.35em;
 }
 
+h3 {
+  font-size: 1.02em;
+  line-height: 1.22;
+  color: #2b5b84;
+  margin-top: 0.75em;
+  margin-bottom: 0.3em;
+}
+
 p {
-  margin-top: 0.45em;
-  margin-bottom: 0.45em;
+  margin-top: 0.35em;
+  margin-bottom: 0.35em;
   text-indent: 0;
   text-align: left;
   overflow-wrap: break-word;
 }
 
+ul, ol {
+  padding-left: 1.25em;
+  margin: 0.35em 0;
+}
+
 li {
+  margin: 0.15em 0;
   text-align: left;
   overflow-wrap: break-word;
 }
 
 blockquote {
   border-left: 4px solid #2b5b84;
-  margin-left: 0.6em;
-  margin-right: 0.4em;
-  padding: 0.2em 0.9em;
+  margin: 0.4em 0.3em 0.4em 0.4em;
+  padding: 0.2em 0.7em;
   color: #444444;
   background-color: #f8fafc;
 }
